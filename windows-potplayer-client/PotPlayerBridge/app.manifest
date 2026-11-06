@@ -4,7 +4,7 @@
 
   <!--
     不需要管理员权限：程序只写 %LocalAppData%、只监听回环地址。
-    任何需要提权的操作（例如给 Playlist 目录授权）都在安装脚本里单独、显式地做。
+    列表文件也写在 %LocalAppData%，不碰 PotPlayer 安装目录，因此全程无需提权。
   -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security>

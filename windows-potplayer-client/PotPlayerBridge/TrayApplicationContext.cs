@@ -98,12 +98,18 @@ public sealed class TrayApplicationContext : ApplicationContext
         var config = _config.GetSnapshot();
         _runtime.Port = config.Port;
 
+        var launcher = new PotPlayerLauncher(_log, _config);
+
+        // 上次可能是被安装脚本强杀、或代理自身崩溃：先把遗留的播放器关掉，
+        // 否则新实例会和它同时播放，M5 的进度回写会被两边互相覆盖。
+        launcher.CleanupOrphan();
+
         var playback = new PlaybackService(
             _config,
             _locator,
             new JellyfinClient(_log),
             new PlaylistStore(_log),
-            new PotPlayerLauncher(_log, _config),
+            launcher,
             _runtime,
             _log);
 

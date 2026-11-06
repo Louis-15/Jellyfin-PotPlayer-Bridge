@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
 
 namespace PotPlayerBridge.Core;
 
@@ -19,6 +21,14 @@ public sealed record LaunchResult(int ProcessId, IntPtr WindowHandle);
 /// </summary>
 public sealed class PotPlayerLauncher
 {
+    private static readonly JsonSerializerOptions SessionJson = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true
+    };
+
+    /// <summary>Gets 记录「本次拉起的是哪个 PotPlayer」的文件，供下次启动清理孤儿实例。</summary>
+    private static string SessionPath => Path.Combine(AppPaths.DataDirectory, "potplayer-session.json");
+
     private readonly Logger _log;
     private readonly ConfigStore _config;
     private readonly object _gate = new();
@@ -111,8 +121,142 @@ public sealed class PotPlayerLauncher
             _window = handle;
         }
 
+        SaveSession(process.Id, dplPath);
+
         return new LaunchResult(process.Id, handle);
     }
+
+    /// <summary>
+    /// 清理上一次运行遗留的 PotPlayer。
+    /// 为什么需要：代理被安装脚本强杀或自身崩溃时，它拉起的播放器不会跟着退出；新代理启动后
+    /// 又会拉起一个，于是两个实例同时在播，M5 的进度回写会互相覆盖。
+    /// 判定依据是本代理「拉起成功后立刻写下」的 session 文件，只处理该 PID，绝不碰用户自己开的播放器。
+    /// </summary>
+    public void CleanupOrphan()
+    {
+        var record = LoadSession();
+        if (record is null)
+        {
+            return;
+        }
+
+        try
+        {
+            using var process = Process.GetProcessById(record.ProcessId);
+            if (process.HasExited || !IsPotPlayer(process))
+            {
+                // PID 已被系统复用给别的程序，或播放器早已退出：只清记录，不动进程。
+                DeleteSession();
+                return;
+            }
+
+            var window = PotPlayerWindow.FindMainWindow(record.ProcessId);
+            _log.Warn("发现上次遗留的 PotPlayer（PID=" + record.ProcessId + "，列表=" + record.DplPath + "），先关闭它。");
+
+            if (window != IntPtr.Zero)
+            {
+                PotPlayerWindow.SendStop(window);
+                PotPlayerWindow.PostClose(window);
+            }
+            else
+            {
+                process.CloseMainWindow();
+            }
+
+            for (var i = 0; i < 30 && !process.HasExited; i++)
+            {
+                process.WaitForExit(100);
+            }
+
+            if (!process.HasExited)
+            {
+                _log.Warn("遗留的 PotPlayer 未在 3 秒内退出，直接结束：PID=" + record.ProcessId);
+                process.Kill();
+            }
+        }
+        catch (ArgumentException)
+        {
+            // 进程已经不存在（GetProcessById 抛这个），属于最常见的正常情况。
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("清理遗留 PotPlayer 失败：" + ex.Message);
+        }
+        finally
+        {
+            DeleteSession();
+        }
+    }
+
+    private static bool IsPotPlayer(Process process)
+    {
+        try
+        {
+            var path = process.MainModule?.FileName;
+            return path is not null
+                   && Path.GetFileNameWithoutExtension(path)
+                       .StartsWith("PotPlayer", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            // 读不到模块信息（权限/位数不匹配）时宁可不碰，避免误杀其它程序。
+            return false;
+        }
+    }
+
+    private void SaveSession(int processId, string dplPath)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppPaths.DataDirectory);
+            File.WriteAllText(
+                SessionPath,
+                JsonSerializer.Serialize(new SessionRecord(processId, dplPath), SessionJson),
+                new UTF8Encoding(false));
+        }
+        catch (Exception ex)
+        {
+            // 写不了只是少了一层保护，不影响本次播放。
+            _log.Warn("写入 PotPlayer 会话记录失败：" + ex.Message);
+        }
+    }
+
+    private void DeleteSession()
+    {
+        try
+        {
+            if (File.Exists(SessionPath))
+            {
+                File.Delete(SessionPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("删除 PotPlayer 会话记录失败：" + ex.Message);
+        }
+    }
+
+    private SessionRecord? LoadSession()
+    {
+        try
+        {
+            if (!File.Exists(SessionPath))
+            {
+                return null;
+            }
+
+            var json = File.ReadAllText(SessionPath, Encoding.UTF8);
+            var record = JsonSerializer.Deserialize<SessionRecord>(json, SessionJson);
+            return record is { ProcessId: > 0 } ? record : null;
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("读取 PotPlayer 会话记录失败：" + ex.Message);
+            return null;
+        }
+    }
+
+    private sealed record SessionRecord(int ProcessId, string DplPath);
 
     /// <summary>
     /// 优雅关闭本代理拉起的实例。
@@ -185,7 +329,7 @@ public sealed class PotPlayerLauncher
                     _log.Warn("强制结束 PotPlayer 失败：" + ex.Message);
                 }
 
-                // 下次启动前做一次 Playlist 目录快照比对（PLAN 6.5）。
+                // 下次启动前做一次列表目录快照比对（PLAN 6.5）。
                 var config = _config.GetSnapshot();
                 config.AbnormalExit = true;
                 _config.Save(config);
@@ -194,6 +338,7 @@ public sealed class PotPlayerLauncher
         finally
         {
             process.Dispose();
+            DeleteSession();
         }
     }
 

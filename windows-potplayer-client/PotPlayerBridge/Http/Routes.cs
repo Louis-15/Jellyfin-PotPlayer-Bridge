@@ -213,7 +213,6 @@ public sealed class Routes
                 itemType = result.Plan.ItemType,
                 dplPath = result.Playlist.DplPath,
                 playlistDir = result.Playlist.PlaylistDirectory,
-                usedFallback = result.Playlist.UsedFallback,
                 processId = result.Launch.ProcessId,
                 windowHandle = result.Launch.WindowHandle.ToInt64()
             });

@@ -25,7 +25,7 @@ windows-potplayer-client/
 │  ├─ Core/PotPlayerLocator.cs      # 8 步路径发现
 │  ├─ Core/JellyfinClient.cs        # 调服务器 /PotPlayerBridge/Resolve（Token 只在内存里）
 │  ├─ Core/DplBuilder.cs            # 生成 DPL 文本（UTF-8 BOM + CRLF）
-│  ├─ Core/PlaylistStore.cs         # Playlist 目录选择、备份、清单、保留 5 个
+│  ├─ Core/PlaylistStore.cs         # 列表目录（LocalAppData）、备份、清单、保留 5 个
 │  ├─ Core/PlaybackService.cs       # 解析 → 关旧实例 → 写 DPL → 拉起
 │  ├─ Core/PotPlayerLauncher.cs     # 启动/优雅关闭（WM_COMMAND 20002 → WM_CLOSE → Kill 兜底）
 │  ├─ Core/PotPlayerWindow.cs       # 窗口查找与消息
@@ -133,8 +133,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
    ```json
    {"ok":true,"playlistName":"誓言无声 第1季","startIndex":4,"playlistCount":20,
     "itemId":"...","itemType":"Episode",
-    "dplPath":"D:\\Program Files\\PotPlayer\\Playlist\\誓言无声 第1季.dpl",
-    "usedFallback":false,"processId":1234,"windowHandle":5678}
+    "dplPath":"C:\\Users\\<你>\\AppData\\Local\\PotPlayerBridge\\playlists\\誓言无声 第1季.dpl",
+    "playlistDir":"C:\\Users\\<你>\\AppData\\Local\\PotPlayerBridge\\playlists",
+    "processId":1234,"windowHandle":5678}
    ```
 
    失败时返回 `{ "code": "...", "message": "中文提示" }`，常见 code：
@@ -144,6 +145,15 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 > 注意：**PotPlayer 退出时会把当前播放项写回 `.dpl`**（`topindex` / `playname` 都会变），
 > 所以代理固定按「先关旧实例 → 再写 DPL → 最后启动」的顺序执行。
 > 如果改成先写后关，刚算好的起播集会被旧实例的退出状态覆盖，表现为「点了 E4 却播 E5」。
+
+> 列表标签名前那个 `*` 是 PotPlayer 给「当前播放列表」打的未保存标记，与 DPL 内容无关
+> （`topindex=0`、补 `duration2`、补 `playtime`、把文件设为只读，四种写法都实测过），去不掉，属正常现象。
+> 但是**不能**把 DPL 写进 PotPlayer 的 `Playlist` 目录：那样 PotPlayer 会额外把它登记成常驻「专辑」，
+> 播放列表里就会出现两个同名条目，而且关掉播放器后仍留在专辑里（下一个用这台电脑的人能看到你都播过什么）。
+
+> 代理重启时（含 `install.ps1 -Force` 强杀）会读 `%LocalAppData%\PotPlayerBridge\potplayer-session.json`
+> 里记的 PID，把上次遗留的播放器关掉。否则新旧两个实例会同时播放，M5 的进度回写会互相覆盖。
+> 只会处理该 PID 且进程名匹配 `PotPlayer*` 的情况，你自己开的播放器不受影响。
 
 ## 配置
 
@@ -189,7 +199,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 - 请求带 `Origin` 时，必须命中 `serverUrl` 推导出的源或本机设置页；
 - `/health` 与 `/api/*` 强制要求 `X-PPB-Client: 1`，浏览器跨域必须先预检，恶意网页无法静默调用；
 - `/api/play` 会临时接收 Jellyfin Token，但**只在内存里用于一次 Resolve 请求**，不落盘、不写日志；
-- DPL 里的播放地址带 Jellyfin 直链参数，属于 PotPlayer 播放必需内容，会写进 Playlist 目录；
+- DPL 里的播放地址带 Jellyfin 直链参数，属于 PotPlayer 播放必需内容，会写进
+  `%LocalAppData%\PotPlayerBridge\playlists`（**不写** PotPlayer 自己的 `Playlist` 目录，
+  否则 PotPlayer 会把它登记成常驻「专辑」，既会出现同名重复标签，也会把观看记录留在播放列表里）；
   代理只管理自己创建过的文件（`created-playlists.json`），删除前会比对目录快照。
 
 ## 更新
@@ -231,6 +243,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -RemoveData
 - [x] PotPlayer 路径发现（8 步）+ 手动指定 + 失效重查
 - [x] `potplayerbridge://` 协议注册（install.ps1）
 - [x] `/api/play`：调 Resolve → 生成整季 DPL → 拉起 PotPlayer
-- [x] 实例管理：先关旧实例再写列表，连点只留一个实例；异常退出标记 + Playlist 快照
-- [x] Playlist 目录备份、清单、只清理自己创建的文件（保留最近 5 个）
+- [x] 实例管理：先关旧实例再写列表，连点只留一个实例；异常退出标记 + 列表快照
+- [x] 代理重启时清理遗留播放器（`potplayer-session.json` 记 PID），避免重装/崩溃后出现两个实例同时播放
+- [x] 列表只写 `%LocalAppData%\PotPlayerBridge\playlists`（不污染 PotPlayer 专辑），清单登记 + 只清理自己的文件（保留最近 5 个）
 - [ ] 进度同步（M5）、片头片尾与字幕（M6）

@@ -7,14 +7,14 @@ namespace PotPlayerBridge.Core;
 /// <summary>写 DPL 的结果。</summary>
 /// <param name="DplPath">DPL 文件完整路径。</param>
 /// <param name="PlaylistDirectory">实际写入的目录。</param>
-/// <param name="UsedFallback">是否因为 Playlist 目录不可写而退回到 LocalAppData。</param>
-public sealed record PlaylistWriteResult(string DplPath, string PlaylistDirectory, bool UsedFallback);
+public sealed record PlaylistWriteResult(string DplPath, string PlaylistDirectory);
 
 /// <summary>
 /// DPL 文件管理（PLAN 6.4 / 6.4.1）：
 /// <list type="bullet">
-/// <item>优先写 PotPlayer 的 Playlist 目录（文件名就是列表标签名）；不可写时退回 LocalAppData；</item>
-/// <item>写前备份整个 Playlist 目录（最多 10 份快照）；</item>
+/// <item>固定写本程序自己的数据目录（<c>%LocalAppData%\PotPlayerBridge\playlists</c>）；
+///       文件名就是 PotPlayer 的列表标签名；</item>
+/// <item>写前备份同目录的旧列表（最多 10 份快照）；</item>
 /// <item>用 created-playlists.json 记录「本代理创建过哪些文件」，删除时只碰自己的；</item>
 /// <item>写完校验非本代理文件数量没有减少，异常时从快照恢复。</item>
 /// </list>
@@ -42,17 +42,18 @@ public sealed class PlaylistStore
 
     private string BackupRoot => Path.Combine(AppPaths.DataDirectory, "playlist-backup");
 
+    /// <summary>写 DPL 的目录：固定用本程序的数据目录，绝不写 PotPlayer 安装目录下的 Playlist。</summary>
+    private static string PlaylistDirectory => Path.Combine(AppPaths.DataDirectory, "playlists");
+
     /// <summary>写入一个播放计划对应的 DPL。</summary>
     /// <param name="plan">播放计划。</param>
-    /// <param name="potPlayerExe">PotPlayer 可执行文件路径。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>写入结果。</returns>
     public async Task<PlaylistWriteResult> WriteAsync(
         PlaybackPlan plan,
-        string potPlayerExe,
         CancellationToken cancellationToken)
     {
-        var (directory, usedFallback) = ResolvePlaylistDirectory(potPlayerExe);
+        var directory = PlaylistDirectory;
         Directory.CreateDirectory(directory);
 
         var manifest = LoadManifest();
@@ -78,14 +79,14 @@ public sealed class PlaylistStore
         if (foreignAfter < foreignBefore)
         {
             RestoreBackup(backup, directory);
-            _log.Error("检测到 Playlist 目录的外部文件数量减少（" + foreignBefore + " -> " + foreignAfter + "），已从快照恢复：" + backup);
+            _log.Error("检测到列表目录的外部文件数量减少（" + foreignBefore + " -> " + foreignAfter + "），已从快照恢复：" + backup);
             throw new PlaybackException(
                 500,
-                "写入播放列表后检测到 Playlist 目录的其它专辑文件减少，已从备份恢复。请检查 PotPlayer 是否运行正常。",
+                "写入播放列表后检测到列表目录的其它文件减少，已从备份恢复。请检查 PotPlayer 是否运行正常。",
                 "playlist-verify-failed");
         }
 
-        return new PlaylistWriteResult(target, directory, usedFallback);
+        return new PlaylistWriteResult(target, directory);
     }
 
     /// <summary>在启动播放器前，为指定目录做一次快照（供 abnormalExit 恢复流程使用）。</summary>
@@ -96,41 +97,53 @@ public sealed class PlaylistStore
         return CreateBackup(directory);
     }
 
-    private (string Directory, bool UsedFallback) ResolvePlaylistDirectory(string potPlayerExe)
+    /// <summary>
+    /// 清理早期版本留在 PotPlayer 安装目录 <c>Playlist</c> 里的 DPL。
+    /// 为什么必须清：PotPlayer 会把该目录里的每个 .dpl 当成常驻「专辑」标签，
+    /// 于是同一部剧会同时出现「专辑 誓言无声 第1季」和本次播放的「*誓言无声 第1季」两个同名条目。
+    /// 只删清单里登记过、且不在当前目录的项，用户自己的专辑一律不碰。
+    /// </summary>
+    public void RemoveLegacyFiles()
     {
-        var exeDirectory = Path.GetDirectoryName(potPlayerExe);
-        if (!string.IsNullOrWhiteSpace(exeDirectory))
+        var manifest = LoadManifest();
+        if (manifest.Items.Count == 0)
         {
-            var candidate = Path.Combine(exeDirectory, "Playlist");
-            if (IsWritable(candidate))
+            return;
+        }
+
+        var current = Path.GetFullPath(PlaylistDirectory);
+        var legacy = manifest.Items
+            .Where(i => !string.Equals(
+                Path.GetFullPath(i.Directory),
+                current,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (legacy.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var item in legacy)
+        {
+            try
             {
-                return (candidate, false);
+                var path = Path.Combine(item.Directory, item.FileName);
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                    _log.Info("已清理旧版本留下的 DPL（避免 PotPlayer 多出同名专辑）：" + path);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("清理旧版本 DPL 失败：" + item.FileName + "：" + ex.Message);
             }
 
-            _log.Warn("Playlist 目录不可写，回退到 LocalAppData：" + candidate);
+            manifest.Items.Remove(item);
         }
 
-        // 回退目录：播放功能完全正常，只是 PotPlayer 标签页里看不到列表名。
-        var fallback = Path.Combine(AppPaths.DataDirectory, "playlists");
-        Directory.CreateDirectory(fallback);
-        return (fallback, true);
-    }
-
-    private static bool IsWritable(string directory)
-    {
-        try
-        {
-            Directory.CreateDirectory(directory);
-            var probe = Path.Combine(directory, ".ppb-write-test");
-            File.WriteAllText(probe, "test", new UTF8Encoding(false));
-            File.Delete(probe);
-            return true;
-        }
-        catch
-        {
-            // 权限不足（Program Files）或磁盘只读。
-            return false;
-        }
+        SaveManifest(manifest);
     }
 
     private static string ResolveTargetPath(string directory, string fileName, PlaylistManifest manifest)
@@ -209,7 +222,7 @@ public sealed class PlaylistStore
         catch (Exception ex)
         {
             // 备份失败不应该阻断播放，但必须留下明确日志：后面的校验会因此退化为尽力而为。
-            _log.Warn("备份 Playlist 目录失败：" + ex.Message);
+            _log.Warn("备份列表目录失败：" + ex.Message);
             return null;
         }
     }

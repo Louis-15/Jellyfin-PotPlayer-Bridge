@@ -20,7 +20,7 @@ public sealed class AgentConfig
 
     /// <summary>
     /// Gets or sets a value indicating whether 上次是否因为「PotPlayer 未在 3 秒内退出」而被强制结束。
-    /// 下次播放前会先对 Playlist 目录做一次快照，再继续（PLAN 6.5）。
+    /// 下次播放前会先对本程序的列表目录做一次快照，再继续（PLAN 6.5）。
     /// </summary>
     public bool AbnormalExit { get; set; }
 

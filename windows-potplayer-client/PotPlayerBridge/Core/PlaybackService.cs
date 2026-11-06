@@ -64,13 +64,17 @@ public sealed class PlaybackService
         {
             var config = _config.GetSnapshot();
 
+            // 旧版本会把 DPL 写进 PotPlayer 安装目录的 Playlist，导致同一部剧在
+            // PotPlayer 里多出一个同名「专辑」标签；升级后清掉这些残留（只碰清单里登记过的文件）。
+            _playlists.RemoveLegacyFiles();
+
             if (config.AbnormalExit)
             {
-                // 上次是「PotPlayer 没响应 WM_CLOSE 被强杀」：先补一次 Playlist 目录快照（PLAN 6.5）。
-                BackupPlaylistForRecovery(config);
+                // 上次是「PotPlayer 没响应 WM_CLOSE 被强杀」：先补一次列表目录快照（PLAN 6.5）。
+                BackupPlaylistForRecovery();
                 config.AbnormalExit = false;
                 _config.Save(config);
-                _log.Warn("检测到上次异常退出标记，已对 Playlist 目录做快照。");
+                _log.Warn("检测到上次异常退出标记，已对列表目录做快照。");
             }
 
             var exePath = ResolvePotPlayer(config);
@@ -84,7 +88,7 @@ public sealed class PlaybackService
             // 若先写 DPL 再关旧实例，刚算好的起播集会被旧实例的退出状态覆盖（实测会串到下一集）。
             await _launcher.CloseOwnedAsync(cancellationToken).ConfigureAwait(false);
 
-            var write = await _playlists.WriteAsync(plan, exePath, cancellationToken).ConfigureAwait(false);
+            var write = await _playlists.WriteAsync(plan, cancellationToken).ConfigureAwait(false);
             var launch = await _launcher.LaunchAsync(exePath, write.DplPath, cancellationToken).ConfigureAwait(false);
 
             _runtime.SetCurrentPlayback(plan, launch.ProcessId, launch.WindowHandle);
@@ -160,18 +164,12 @@ public sealed class PlaybackService
         return path;
     }
 
-    private void BackupPlaylistForRecovery(AgentConfig config)
+    private void BackupPlaylistForRecovery()
     {
         try
         {
-            var exe = _locator.DetectFast(config.PotPlayerPath).Path;
-            var exeDirectory = exe is null ? null : Path.GetDirectoryName(exe);
-            if (string.IsNullOrWhiteSpace(exeDirectory))
-            {
-                return;
-            }
-
-            _playlists.BackupDirectory(Path.Combine(exeDirectory, "Playlist"));
+            // 只备份本程序自己的列表目录：PotPlayer 安装目录下的 Playlist 已经不再写入。
+            _playlists.BackupDirectory(Path.Combine(AppPaths.DataDirectory, "playlists"));
         }
         catch (Exception ex)
         {
