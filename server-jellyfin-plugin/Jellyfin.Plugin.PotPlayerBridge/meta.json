@@ -1,0 +1,13 @@
+{
+  "guid": "f70de2ad-8dc4-4efd-9daf-73c9657ae62f",
+  "name": "PotPlayer Bridge",
+  "version": "1.0.0.0",
+  "targetAbi": "12.2.0.0",
+  "framework": "net10.0",
+  "owner": "Jellyfin-PotPlayer-Bridge",
+  "overview": "把 Jellyfin 网页的播放按钮接到本机 PotPlayer，并同步播放进度。",
+  "description": "服务器侧插件：向 jellyfin-web 注入客户端脚本，解析 Series/Season/Episode/Movie 的播放意图，生成整季播放计划，按季保存片头片尾配置，并在回写播放进度时拒绝会倒退的写入。真正启动 PotPlayer 的是同一仓库的 Windows 本地代理，两者缺一不可。",
+  "category": "General",
+  "imagePath": "logo.png",
+  "timestamp": "2026-11-06T15:30:00.0000000Z"
+}

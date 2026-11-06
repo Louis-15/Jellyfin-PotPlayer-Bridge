@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Jellyfin.Plugin.PotPlayerBridge</RootNamespace>
+    <AssemblyName>Jellyfin.Plugin.PotPlayerBridge</AssemblyName>
+    <Version>1.0.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Company>Jellyfin-PotPlayer-Bridge</Company>
+    <Authors>Jellyfin-PotPlayer-Bridge</Authors>
+    <Description>把 jellyfin-web 的播放按钮接到本机 PotPlayer：解析播放意图、生成播放计划、守卫进度回写。</Description>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <!--
+      绝不把 Jellyfin / ASP.NET 程序集拷到插件目录旁边。Jellyfin 会把插件目录里的每个 dll
+      都加载进独立的 PluginLoadContext，私有副本会让框架类型出现第二份身份，DI 静默匹配失败。
+    -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Jellyfin.Controller" Version="12.2.0">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 前端资源内嵌进 dll，Docker 只读镜像也能用，不往 web 目录写文件。 -->
+    <EmbeddedResource Include="Web\**\*.js" />
+    <EmbeddedResource Include="Web\**\*.css" />
+    <EmbeddedResource Include="Web\**\*.html" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      注入过滤器、API 控制器用的是 ASP.NET Core 类型；服务器自带该共享框架，
+      这里只声明引用，运行时不会额外拷贝程序集。
+    -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Jellyfin.Plugin.PotPlayerBridge.Tests" />
+  </ItemGroup>
+
+</Project>

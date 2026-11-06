@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PotPlayer Bridge 设置</title>
+<style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0; padding: 0;
+        font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+        background: #101010; color: rgba(255, 255, 255, .87);
+    }
+    main { max-width: 760px; margin: 48px auto; padding: 0 20px; }
+    h1 { margin: 0 0 4px; font-size: 24px; }
+    .sub { margin: 0 0 28px; color: rgba(255, 255, 255, .55); }
+    .card {
+        padding: 24px; border-radius: 10px;
+        background: rgba(255, 255, 255, .06);
+        border: 1px solid rgba(255, 255, 255, .08);
+    }
+    .field { display: block; margin-bottom: 18px; }
+    .label { display: block; margin-bottom: 6px; font-size: 13px; color: rgba(255, 255, 255, .65); }
+    input[type=text] {
+        width: 100%; padding: 10px 12px; font-size: 14px;
+        border-radius: 6px; border: 1px solid rgba(255, 255, 255, .24);
+        background: #000; color: #fff;
+    }
+    input[type=text]:focus {
+        outline: none; border-color: #00a4dc;
+        box-shadow: 0 0 0 2px rgba(0, 164, 220, .25);
+    }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+    button {
+        padding: 9px 18px; font-size: 14px; cursor: pointer;
+        border-radius: 6px; border: 1px solid rgba(255, 255, 255, .2);
+        background: rgba(255, 255, 255, .08); color: #fff;
+    }
+    button:hover:not(:disabled) { background: rgba(255, 255, 255, .14); }
+    button.primary { background: #00a4dc; border-color: #00a4dc; }
+    button.primary:hover:not(:disabled) { background: #0090c2; }
+    button:disabled { opacity: .55; cursor: default; }
+    .status { min-height: 1.4em; margin: 16px 0 0; font-size: 13px; color: rgba(255, 255, 255, .7); }
+    .status.error { color: #ff8a80; }
+    .status.ok { color: #7ee787; }
+    .hint { margin: 18px 0 0; font-size: 12px; line-height: 1.8; color: rgba(255, 255, 255, .45); }
+    .meta { margin-top: 14px; font-size: 12px; color: rgba(255, 255, 255, .4); word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+    <h1>PotPlayer Bridge</h1>
+    <p class="sub">本机代理设置 · 只在本机生效</p>
+
+    <div class="card">
+        <label class="field">
+            <span class="label">Jellyfin 服务器地址</span>
+            <input id="serverUrl" type="text" placeholder="https://your-server:8443" autocomplete="off">
+        </label>
+
+        <label class="field">
+            <span class="label">PotPlayer 路径（PotPlayerMini64.exe）</span>
+            <input id="potPlayerPath" type="text" placeholder="D:\Program Files\PotPlayer\PotPlayerMini64.exe" autocomplete="off" spellcheck="false">
+        </label>
+
+        <div class="row">
+            <button id="detect" type="button">自动检测</button>
+            <button id="save" type="button" class="primary">保存</button>
+        </div>
+
+        <p id="status" class="status"></p>
+
+        <p class="hint">
+            双击系统托盘里的图标可以打开完整设置窗口（支持浏览文件、打开日志）。<br>
+            本机端口固定为 <span id="port">18927</span>；修改端口需要同时调整 Jellyfin 插件配置。
+        </p>
+        <div class="meta" id="meta"></div>
+    </div>
+</main>
+
+<script>
+(function () {
+    'use strict';
+
+    // 所有请求都带 X-PPB-Client：服务端强制校验，避免任意网页静默调用本机代理。
+    var baseHeaders = { 'Accept': 'application/json', 'X-PPB-Client': '1' };
+
+    var statusEl = document.getElementById('status');
+    var serverEl = document.getElementById('serverUrl');
+    var pathEl = document.getElementById('potPlayerPath');
+    var portEl = document.getElementById('port');
+    var metaEl = document.getElementById('meta');
+    var detectBtn = document.getElementById('detect');
+    var saveBtn = document.getElementById('save');
+
+    function setStatus(text, kind) {
+        statusEl.textContent = text || '';
+        statusEl.className = 'status' + (kind ? ' ' + kind : '');
+    }
+
+    function request(url, options) {
+        options = options || {};
+        var headers = Object.assign({}, baseHeaders);
+        if (options.body) {
+            headers['Content-Type'] = 'application/json';
+        }
+
+        return fetch(url, {
+            method: options.method || 'GET',
+            headers: headers,
+            body: options.body ? JSON.stringify(options.body) : undefined,
+            cache: 'no-store'
+        }).then(function (response) {
+            return response.text().then(function (text) {
+                var data = null;
+                try {
+                    data = text ? JSON.parse(text) : null;
+                } catch (error) {
+                    data = null;
+                }
+
+                if (!response.ok) {
+                    throw new Error((data && data.message) || ('HTTP ' + response.status));
+                }
+
+                return data;
+            });
+        });
+    }
+
+    function fill(data) {
+        if (!data) {
+            return;
+        }
+
+        serverEl.value = data.serverUrl || '';
+        pathEl.value = data.potPlayerPath || data.detectedPath || '';
+        portEl.textContent = String(data.port || 18927);
+        metaEl.textContent = '版本 ' + (data.version || '') +
+            ' · 配置文件：' + (data.configFile || '') +
+            (data.detectedSource ? ' · 检测来源：' + data.detectedSource : '');
+    }
+
+    detectBtn.addEventListener('click', function () {
+        detectBtn.disabled = true;
+        setStatus('正在检测 PotPlayer…（会检查注册表、常见目录、开始菜单）');
+
+        request('/api/detect').then(function (data) {
+            pathEl.value = data.path || '';
+            setStatus('已找到：' + data.path + '（来源：' + data.source + '）', 'ok');
+        }).catch(function (error) {
+            setStatus('没有找到：' + error.message, 'error');
+        }).then(function () {
+            detectBtn.disabled = false;
+        });
+    });
+
+    saveBtn.addEventListener('click', function () {
+        saveBtn.disabled = true;
+        setStatus('正在保存…');
+
+        request('/api/settings', {
+            method: 'POST',
+            body: { serverUrl: serverEl.value, potPlayerPath: pathEl.value }
+        }).then(function (data) {
+            fill(data.settings);
+            setStatus('已保存。', 'ok');
+        }).catch(function (error) {
+            setStatus('保存失败：' + error.message, 'error');
+        }).then(function () {
+            saveBtn.disabled = false;
+        });
+    });
+
+    request('/api/settings').then(fill).catch(function (error) {
+        setStatus('读取设置失败：' + error.message, 'error');
+    });
+})();
+</script>
+</body>
+</html>

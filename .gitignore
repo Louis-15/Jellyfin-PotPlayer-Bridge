@@ -1,0 +1,26 @@
+# .NET 构建产物
+[Bb]in/
+[Oo]bj/
+artifacts/
+*.nupkg
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# 打包与发布产物（build.ps1 会重新生成）
+*.zip
+
+# 运行期文件：配置、日志、本机路径信息一律不入库
+*.log
+config.json
+created-playlists.json
+season-settings.json
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+.DS_Store

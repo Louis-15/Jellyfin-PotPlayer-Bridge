@@ -1,0 +1,120 @@
+/*
+ * 季配置面板样式。
+ * 只作用于 .ppb* 前缀的元素，不覆盖 Jellyfin 任何全局样式，避免插件更新后和前端改版冲突。
+ */
+
+.ppbPanel {
+    /* 面板是一条「从海报右边缘铺到页面右边缘」的横条：
+       左右 margin/padding 由 seasonPanel.js 的 alignPanel 按标题栏实时计算，
+       这里只保留上下间距与上下分隔线，避免出现左右断开的观感。 */
+    margin: 0 0 1.1em;
+    padding: 0.9em 0 1em;
+    border-radius: 0;
+    background: rgba(255, 255, 255, 0.06);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    box-sizing: border-box;
+    color: rgba(255, 255, 255, 0.87);
+    font-size: 0.95em;
+}
+
+.ppbHead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.6em;
+    margin-bottom: 0.7em;
+}
+
+.ppbTitle {
+    font-weight: 600;
+    font-size: 1.05em;
+}
+
+.ppbTarget {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.9em;
+}
+
+.ppbRow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1em;
+}
+
+.ppbField {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+}
+
+.ppbFieldLabel {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.85em;
+}
+
+.ppbInput {
+    width: 7.5em;
+    padding: 0.45em 0.6em;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    background: rgba(0, 0, 0, 0.35);
+    color: inherit;
+    font-size: 1em;
+}
+
+.ppbInput:focus {
+    outline: none;
+    border-color: #00a4dc;
+    box-shadow: 0 0 0 2px rgba(0, 164, 220, 0.25);
+}
+
+.ppbSave {
+    padding: 0.5em 1.4em;
+    border-radius: 4px;
+    background: #00a4dc;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-size: 0.95em;
+}
+
+.ppbSave:hover:not(:disabled) {
+    background: #0090c2;
+}
+
+.ppbSave:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.ppbStatus {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.85em;
+    min-height: 1.2em;
+}
+
+.ppbStatusError {
+    color: #ff8a80;
+}
+
+.ppbHint {
+    margin-top: 0.7em;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.82em;
+    line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+    .ppbPanel {
+        /* 小屏没有单独的左右海报列：JS 会把 margin-left 归零，
+           这里只需略收窄上下间距。 */
+        margin: 0 0 1em;
+        padding: 0.8em 0 0.9em;
+    }
+
+    .ppbInput {
+        width: 6.5em;
+    }
+}
