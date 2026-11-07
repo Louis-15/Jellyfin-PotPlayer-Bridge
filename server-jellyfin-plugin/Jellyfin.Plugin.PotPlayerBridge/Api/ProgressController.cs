@@ -127,9 +127,17 @@ public sealed class ProgressController : BridgeControllerBase
             data.PlaybackPositionTicks = Math.Min(data.PlaybackPositionTicks, request.DurationTicks);
         }
 
+        // 为什么不用 PlaybackProgress 处理所有情况：
+        // Jellyfin 的 UserDataChangeNotifier 会跳过 SaveReason == PlaybackProgress 的保存，
+        // 不广播 UserDataChanged。实测（2026-11-07）用 PlaybackProgress 保存后，网页 WebSocket
+        // 一个事件都收不到，进度条要等半分钟才变；而手机端是自己主动拉取，所以看起来「手机快、网页慢」。
+        // 处理办法：常规进度仍然用 PlaybackProgress（避免每 5 秒把网页刷一次），
+        // 但「用户能感知的时刻」（暂停、拖动、播完、停止）改用会广播的 reason，网页立即更新。
         var reason = request.Stopped
             ? UserDataSaveReason.PlaybackFinished
-            : UserDataSaveReason.PlaybackProgress;
+            : request.IsPaused || request.Seeked || request.Ended
+                ? UserDataSaveReason.UpdateUserData
+                : UserDataSaveReason.PlaybackProgress;
 
         // 用 Jellyfin 自己的保存通道，其他客户端（手机/VidHub）与「继续观看」才能立刻看到。
         // 注意：12.2.0 的 SaveUserData 是同步 void，不要 await。
