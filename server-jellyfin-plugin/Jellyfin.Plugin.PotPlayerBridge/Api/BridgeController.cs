@@ -27,6 +27,7 @@ public sealed class BridgeController : BridgeControllerBase
     private static readonly Lazy<string> ClientScriptTemplate = new(() => LoadEmbedded(".clientScript.js"));
     private static readonly Lazy<string> SeasonPanelScript = new(() => LoadEmbedded(".seasonPanel.js"));
     private static readonly Lazy<string> PlayClientScript = new(() => LoadEmbedded(".playClient.js"));
+    private static readonly Lazy<string> ProgressBadgeScript = new(() => LoadEmbedded(".progressBadge.js"));
     private static readonly Lazy<string> SeasonSettingsStyles = new(() => LoadEmbedded(".seasonSettings.css"));
 
     private readonly ILogger<BridgeController> _logger;
@@ -106,6 +107,16 @@ public sealed class BridgeController : BridgeControllerBase
     {
         Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
         return Content(PlayClientScript.Value, "application/javascript; charset=utf-8");
+    }
+
+    /// <summary>返回卡片进度角标脚本。由 Client.js 在 ApiClient 就绪后动态加载。</summary>
+    /// <returns>JavaScript 文本。</returns>
+    [AllowAnonymous]
+    [HttpGet("ProgressBadge.js")]
+    public IActionResult ProgressBadge()
+    {
+        Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+        return Content(ProgressBadgeScript.Value, "application/javascript; charset=utf-8");
     }
 
     /// <summary>返回季配置面板样式。</summary>

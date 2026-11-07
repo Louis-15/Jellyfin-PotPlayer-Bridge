@@ -27,6 +27,15 @@ public sealed class ClientScriptInjectionFilter : IStartupFilter
     /// <summary>客户端脚本的固定路径。控制器上用同一个字符串，改动请两边同步。</summary>
     internal const string ScriptPath = "/PotPlayerBridge/Client.js";
 
+    /// <summary>
+    /// 缓存指纹：取「插件进程启动的时刻」。
+    /// 为什么不用程序集文件的写入时间：部署脚本用 <c>unzip -o</c> 解压，会原样恢复 zip 里记录的
+    /// 时间戳，所以反复部署时程序集时间几乎不变，指纹不变 → 浏览器一直复用它缓存的旧脚本
+    /// （实测：服务器上已是新版，浏览器仍在跑旧代码，改了半天看不到效果）。
+    /// 换成进程启动时刻后：同一次运行内指纹稳定（缓存依然有效），重启即换新（强制更新）。
+    /// </summary>
+    private static readonly string CacheStamp = DateTime.UtcNow.Ticks.ToString("x", System.Globalization.CultureInfo.InvariantCulture);
+
     private readonly ILogger<ClientScriptInjectionFilter> _logger;
 
     // 只在第一次成功注入时写日志，避免每次首页请求都刷一行。
@@ -55,7 +64,13 @@ public sealed class ClientScriptInjectionFilter : IStartupFilter
     /// <returns>要插入的 HTML 片段。</returns>
     internal static string BuildScriptBlock(string basePath)
     {
-        return Marker + "<script src=\"" + basePath + ScriptPath + "\" defer></script>";
+        return Marker + "<script src=\"" + basePath + ScriptPath + "?v=" + CacheStamp + "\" defer></script>";
+    }
+
+    private static string ComputeCacheStamp()
+    {
+        // 保留给单元测试/诊断用；正式路径直接用进程启动时刻（见 CacheStamp 字段说明）。
+        return DateTime.UtcNow.Ticks.ToString("x", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>判断请求是不是 jellyfin-web 的页面外壳。</summary>
@@ -186,6 +201,14 @@ public sealed class ClientScriptInjectionFilter : IStartupFilter
         context.Response.Headers.Remove("ETag");
         context.Response.Headers.Remove("Last-Modified");
         context.Response.Headers.Remove("Accept-Ranges");
+
+        // 页面里带着脚本的版本指纹（?v=...），所以页面本身绝不能被缓存：
+        // 浏览器如果复用了旧的 index.html，就会一直去加载旧版本的 Client.js，
+        // 插件更新后用户完全看不到变化（实测：服务器上已是新版，浏览器仍在跑旧代码）。
+        context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+        context.Response.Headers.Pragma = "no-cache";
+        context.Response.Headers.Expires = "0";
+
         await originalBody.WriteAsync(bytes, context.RequestAborted).ConfigureAwait(false);
     }
 }

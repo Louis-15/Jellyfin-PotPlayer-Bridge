@@ -21,6 +21,10 @@
 
     var CONFIG = __PPB_CONFIG_JSON__;
     var SCRIPT_SRC = (document.currentScript && document.currentScript.src) || '';
+    var CACHE_STAMP = (function () {
+        var match = /[?&]v=([^&]+)/.exec(SCRIPT_SRC);
+        return match ? decodeURIComponent(match[1]) : '';
+    })();
 
     window.__potPlayerBridgeClient = true;
 
@@ -169,6 +173,15 @@
         loadModuleScript('PlayClient.js', '播放按钮接管');
     }
 
+    function loadProgressBadge() {
+        if (window.__ppbProgressBadgeRequested) {
+            return;
+        }
+
+        window.__ppbProgressBadgeRequested = true;
+        loadModuleScript('ProgressBadge.js', '卡片进度角标');
+    }
+
     function loadModuleScript(fileName, label) {
         // 优先用 ApiClient.getUrl（能正确处理反向代理子路径），失败时按脚本自身地址推导。
         var url = null;
@@ -185,6 +198,13 @@
         if (!url) {
             log('无法确定' + label + '脚本地址，跳过加载。');
             return;
+        }
+
+        // 把 Client.js 自己的版本参数带给子脚本：否则插件更新后，
+        // 浏览器仍会用缓存里的旧 SeasonPanel.js / PlayClient.js。
+        var version = CACHE_STAMP;
+        if (version) {
+            url += (url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(version);
         }
 
         var script = document.createElement('script');
@@ -211,6 +231,7 @@
             log('已连接到 Jellyfin Web（ApiClient 就绪），加载季配置面板与播放接管。');
             loadSeasonPanel();
             loadPlayClient();
+            loadProgressBadge();
             return;
         }
 
