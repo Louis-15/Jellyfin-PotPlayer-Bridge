@@ -25,6 +25,7 @@ server-jellyfin-plugin/
 │  │  ├─ BridgeController.cs        # Client.js / SeasonPanel.js / PlayClient.js / CSS / Version（匿名）
 │  │  ├─ BridgeControllerBase.cs    # 统一 JSON / 错误结构 / 当前用户
 │  │  ├─ PlaybackController.cs      # /Resolve、/ItemInfo
+│  │  ├─ ProgressController.cs      # /Progress 进度回写
 │  │  └─ SeasonSettingsController.cs# 季配置读写
 │  ├─ Core/
 │  │  ├─ ClientScriptInjectionFilter.cs  # 请求时改写 index.html
@@ -33,6 +34,7 @@ server-jellyfin-plugin/
 │  │  ├─ EpisodeLibraryQuery.cs     # 12.2.0 查询封装的坑集中在这里
 │  │  ├─ StreamUrlResolver.cs       # STRM 直链 / Jellyfin 直链回退
 │  │  ├─ SeasonSettingsStore.cs     # season-settings.json（原子写入 + 锁）
+│  │  ├─ ProgressGuard.cs           # 防倒退判定 + 会话表（纯逻辑，可单测）
 │  │  ├─ PlaybackModels.cs          # 接口 DTO
 │  │  └─ BridgeException.cs         # 可安全返回给前端的错误
 │  ├─ Web/
@@ -41,7 +43,7 @@ server-jellyfin-plugin/
 │  │  └─ seasonSettings.css         # 面板样式（只作用于 .ppb*）
 │  ├─ meta.json                     # Jellyfin 插件元数据
 │  └─ logo.png
-├─ tests/Jellyfin.Plugin.PotPlayerBridge.Tests/   # xUnit：PlaybackPlanner 规则
+├─ tests/Jellyfin.Plugin.PotPlayerBridge.Tests/   # xUnit：PlaybackPlanner + ProgressGuard
 ├─ global.json
 ├─ build.ps1                        # 编译 + 打包
 └─ README.md                        # 本文件
@@ -191,6 +193,7 @@ ssh -p 2222 root@931002.xyz "rm -rf '/www/jellyfin/config/plugins/PotPlayer Brid
 | GET | `/PotPlayerBridge/SeasonSettings?itemId=` | 读取该集/该季的片头片尾配置 |
 | POST | `/PotPlayerBridge/SeasonSettings` | 保存季配置 `{ itemId, introSeconds, outroSeconds }` |
 | POST | `/PotPlayerBridge/Resolve` | 解析播放计划 `{ itemId, intent }`，intent 为 `item` / `resume` / `restart` |
+| POST | `/PotPlayerBridge/Progress` | 写播放进度（带防倒退守卫），`{ playSessionId, itemId, positionTicks, durationTicks, isPaused, stopped, armed, seeked, ended }` |
 
 `/Resolve` 返回的 `startPositionTicks` 已经合并了「续播 + 片头跳过」：
 续播点落在片头里时跳到片头结束，已经超过片头时保持原位置（D7），`restart` 则从 0 开始但仍按季配置跳片头（D-04）。
@@ -211,7 +214,7 @@ ssh -p 2222 root@931002.xyz "rm -rf '/www/jellyfin/config/plugins/PotPlayer Brid
 - [x] M2：季/集详情页的片头片尾面板
 - [x] M2：16 个单元测试覆盖排序、兜底、片头计算
 - [x] M4：`PlayClient.js` 接管播放按钮（卡片 / 季页剧集行 / 详情页播放），调用本机 `/api/play`
-- [ ] 进度回写与防倒退守卫（M5）
+- [x] M5：`/Progress` 进度回写 + `ProgressGuard` 防倒退守卫（未 armed 的上报只能抬高、不能倒退或清零）
 
 ## 故障排查
 

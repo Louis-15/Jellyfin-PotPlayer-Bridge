@@ -427,9 +427,16 @@ Jellyfin-PotPlayer-Bridge2/
   "isPaused": false,
   "stopped": false,
   "armed": true,
-  "seeked": false
+  "seeked": false,
+  "ended": false
 }
 ```
+
+`ended` 是 M5 实测后补的字段：PotPlayer 播完那一刻 `0x5004`（位置）读成 0、`0x5002`（时长）也可能读成 0，
+只靠「位置接近时长」判断不出「已看完」，会被当成「用户把进度拖回开头」而写入 0。
+必须有这个显式标志，服务器才能正确标记已看完。
+
+一个 `playSessionId` 会跨集（PotPlayer 自动连播），所以服务器**按集**记录 armed，不按会话。
 
 #### `POST /Progress` 响应
 
@@ -438,6 +445,7 @@ Jellyfin-PotPlayer-Bridge2/
 ```
 
 被守卫拒绝时：`{ "accepted": false, "reason": "not-armed-and-position-regressed" }`。
+注意仍然返回 HTTP 200：对代理来说这是「服务器收到但没采纳」，不该触发重试。
 
 ### 5.5 解析规则（服务器唯一权威）
 
@@ -508,11 +516,11 @@ Jellyfin-PotPlayer-Bridge2/
 ```
 启动 -> 记录 expectedStartTicks
   |
-  |-- 位置一直 < expectedStart - 5s，且没有检测到真实播放
-  |      -> armed = false，不上报任何进度
+  |-- 位置一直不在 expectedStart 附近，且没有检测到真实播放
+  |      -> armed = false，不上报任何进度（假续播，A4）
   |
-  |-- 位置进入 [expectedStart - 5s, expectedStart + 5s]
-  |   或连续 3 秒位置在增长
+  |-- 位置落在 expectedStart ± 5s
+  |   或 expectedStart≈0 且连续 3 秒位置在增长
   |      -> armed = true，开始正常上报
   |
   |-- armed = true 后用户拖回 0
@@ -522,12 +530,23 @@ Jellyfin-PotPlayer-Bridge2/
          -> 上报 stopped + armed=false；服务器拒绝写入
 ```
 
+实测补充（M5 落地时的三条硬约束）：
+
+- **续播跳转必须先做**：`Resolve` 给的 `startPositionTicks` 只有代理用 `0x5005` 跳过去才成立。
+  跳转按「位置还停在开头」重试最多 6 次；跳不过去就放弃并**始终不 armed** —— 宁可这一次不记录，
+  也不能把 20:00 的进度写成 3 分钟。
+- **armed 不认「大跳 = 用户拖动」**：自动连播时标题可能还没刷新，位置先从 2700s 掉到 0，
+  看起来和「用户拖回开头」一模一样；认错就是一次数据损坏。只有「同一集、两边都在播、时长没变、位置差 > 10s」才算拖动。
+- **停与播完必须分开**：用户中途关播放器时 PotPlayer 的状态也从 2 掉到 0。
+  只有「上一采样位置已在结尾 10 秒内」才判定播完；否则按 stopped 上报最后位置。
+  两种情况下 `0x5004` 都可能读成 0，所以状态机保留「最后一次读到的正数位置」用于兜底。
+
 #### 服务器侧守卫
 
 按 `playSessionId` 在内存里维护：
 
 ```text
-{ expectedStartTicks, armed, lastAcceptedTicks, itemId, userId, updatedAt }
+{ userId, armedItems[], lastAcceptedTicks, updatedAt }
 ```
 
 写入规则：
@@ -536,14 +555,16 @@ Jellyfin-PotPlayer-Bridge2/
 2. `armed == false` 且 `positionTicks < existingPositionTicks - 5s` → 拒绝。
 3. `armed == false` 且 `positionTicks == 0` 且 `existingPositionTicks > 0` → 拒绝。
 4. `armed == true` → 接受（包括变小，A5）。
-5. `positionTicks >= durationTicks - 5s` → 标记 `Played=true`，位置归 0（按 Jellyfin 习惯）。
+5. `ended == true`，或 `durationTicks > 0` 且 `positionTicks >= durationTicks - 5s` → 标记 `Played=true`，位置归 0（按 Jellyfin 习惯）。
 6. 接受时：`PlaybackPositionTicks = positionTicks`，`LastPlayedDate = UtcNow`，`Played=false`（除非第 5 条）。
-7. 调用 `IUserDataManager.SaveUserData(user, item, userData, UserDataSaveReason.PlaybackProgress/PlaybackStop, ct)`，让其他客户端和「继续观看」立即感知。
+7. 调用 `IUserDataManager.SaveUserData(user, item, userData, UserDataSaveReason.PlaybackProgress/PlaybackFinished, ct)`，让其他客户端和「继续观看」立即感知。
 
 #### 额外保护
 
 - 同一 `playSessionId` 的写入串行化（锁）。
-- 旧 session 在 30 分钟无更新后清理。
+- 旧 session 在 30 分钟无更新后清理；清理后重新收到同一 sessionId 按「全新会话」处理（armed 特权一并作废）。
+- **armed 按集记录**：一个会话会跨集（自动连播），但「上一集确认过在播」不代表「新集可以随便写」。
+  换集后新集必须重新建立信任，否则新集若已有旧进度会被一条 0 冲掉。
 - 连点两集（H1）：代理侧用一把播放锁，新的播放请求会先关闭上一个由本代理拉起的 PotPlayer 实例，再启动新的；旧 session 停止上报。服务器按 session 隔离，不会互相覆盖。
 
 ### 5.8 播放地址与字幕地址

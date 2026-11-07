@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>PotPlayerBridge.Tests</RootNamespace>
+    <AssemblyName>PotPlayerBridge.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      只测纯逻辑类（PlaybackProgressState）。不加载 WinForms 界面，
+      也不需要真的装 PotPlayer，所以可以在任意机器上跑。
+    -->
+    <ProjectReference Include="..\..\PotPlayerBridge\PotPlayerBridge.csproj" />
+  </ItemGroup>
+
+</Project>

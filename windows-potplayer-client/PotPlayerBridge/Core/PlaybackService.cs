@@ -25,6 +25,8 @@ public sealed class PlaybackService
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    private PlaybackMonitor? _monitor;
+
     /// <summary>Initializes a new instance of the <see cref="PlaybackService"/> class.</summary>
     /// <param name="config">配置。</param>
     /// <param name="locator">路径发现。</param>
@@ -83,15 +85,26 @@ public sealed class PlaybackService
                 .ResolveAsync(request.ServerUrl!, request.AccessToken!, request.ItemId!, request.Intent!, cancellationToken)
                 .ConfigureAwait(false);
 
-            // 顺序很关键：先关旧实例，再写 DPL，最后启动。
+            // 顺序很关键：先停旧监控（把上一集的最后位置报成 stopped），
+            // 再关旧实例，再写 DPL，最后启动。
             // PotPlayer 退出时会把「当前播放项」写回 DPL（topindex/playname 都会变），
             // 若先写 DPL 再关旧实例，刚算好的起播集会被旧实例的退出状态覆盖（实测会串到下一集）。
+            await StopMonitorAsync().ConfigureAwait(false);
             await _launcher.CloseOwnedAsync(cancellationToken).ConfigureAwait(false);
 
             var write = await _playlists.WriteAsync(plan, cancellationToken).ConfigureAwait(false);
             var launch = await _launcher.LaunchAsync(exePath, write.DplPath, cancellationToken).ConfigureAwait(false);
 
             _runtime.SetCurrentPlayback(plan, launch.ProcessId, launch.WindowHandle);
+
+            _monitor = new PlaybackMonitor(
+                plan,
+                request.ServerUrl!,
+                request.AccessToken!,
+                launch.ProcessId,
+                _jellyfin,
+                _log);
+            _monitor.Start();
 
             _log.Info(
                 "播放已启动：" + plan.PlaylistName +
@@ -104,6 +117,48 @@ public sealed class PlaybackService
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 停止当前监控并上报最后位置。代理退出时必须调用，否则用户这次看的进度会丢（验收项 A1 / H3）。
+    /// </summary>
+    /// <returns>异步任务。</returns>
+    public async Task StopAsync()
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await StopMonitorAsync().ConfigureAwait(false);
+            await _launcher.CloseOwnedAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task StopMonitorAsync()
+    {
+        var monitor = _monitor;
+        if (monitor is null)
+        {
+            return;
+        }
+
+        _monitor = null;
+        try
+        {
+            await monitor.StopAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("停止进度监控失败：" + ex.Message);
+        }
+        finally
+        {
+            await monitor.DisposeAsync().ConfigureAwait(false);
+            _runtime.ClearCurrentPlayback();
         }
     }
 

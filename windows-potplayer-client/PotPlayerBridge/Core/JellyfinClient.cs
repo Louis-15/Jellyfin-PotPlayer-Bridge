@@ -1,3 +1,4 @@
+﻿using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Security;
 using System.Text;
@@ -18,6 +19,14 @@ public sealed class JellyfinClient
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly Logger _log;
+
+    /// <summary>
+    /// 按「协议+主机+端口」缓存 HttpClient。
+    /// 早先每次请求都 new 一个，结果每 5 秒一次的进度上报反复做 TLS 握手，
+    /// 实测会间歇性报 "The SSL connection could not be established"；
+    /// 复用连接后既稳定又省资源。代理是常驻进程，不需要释放这些实例。
+    /// </summary>
+    private readonly ConcurrentDictionary<string, HttpClient> _clients = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Initializes a new instance of the <see cref="JellyfinClient"/> class.</summary>
     /// <param name="log">日志。</param>
@@ -43,12 +52,7 @@ public sealed class JellyfinClient
         var baseUri = new Uri(serverUrl.TrimEnd('/'));
         var endpoint = new Uri(baseUri, "/PotPlayerBridge/Resolve");
 
-        using var handler = CreateHandler(baseUri);
-        using var client = new HttpClient(handler)
-        {
-            // 整季列表 + 每集取地址，服务器侧要查库，给足 30 秒。
-            Timeout = TimeSpan.FromSeconds(30)
-        };
+        var client = GetClient(baseUri);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Headers.TryAddWithoutValidation(
@@ -111,6 +115,119 @@ public sealed class JellyfinClient
 
             return plan;
         }
+    }
+
+    /// <summary>
+    /// 上报一次播放进度。失败不抛异常（PLAN 6.9：进度上报不能打断播放），
+    /// 内部按指数退避重试；全部失败返回 null，由调用方决定记日志。
+    /// </summary>
+    /// <param name="serverUrl">服务器地址。</param>
+    /// <param name="accessToken">访问令牌（只在内存中使用）。</param>
+    /// <param name="report">上报内容。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>服务器结果；网络失败或无响应时返回 null。</returns>
+    public async Task<ProgressResult?> ReportProgressAsync(
+        string serverUrl,
+        string accessToken,
+        ProgressReport report,
+        CancellationToken cancellationToken)
+    {
+        var baseUri = new Uri(serverUrl.TrimEnd('/'));
+        var endpoint = new Uri(baseUri, "/PotPlayerBridge/Progress");
+        var body = JsonSerializer.Serialize(report, JsonOptions);
+
+        // 3 次尝试：1s → 2s → 4s。播放本身不受影响，所以这里可以慢一点等网络恢复。
+        var delays = new[] { 1000, 2000, 4000 };
+
+        for (var attempt = 0; attempt <= delays.Length; attempt++)
+        {
+            if (attempt > 0)
+            {
+                try
+                {
+                    await Task.Delay(delays[attempt - 1], cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return null;
+                }
+            }
+
+            try
+            {
+                var client = GetClient(baseUri);
+                using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+                request.Headers.TryAddWithoutValidation(
+                    "Authorization",
+                    "MediaBrowser Token=\"" + accessToken + "\"");
+                request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+                using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    // 4xx 是请求本身的问题（登录失效、item 不存在），重试没有意义。
+                    if ((int)response.StatusCode is >= 400 and < 500)
+                    {
+                        _log.Warn("进度上报被拒绝：" + (int)response.StatusCode + " " + Truncate(text));
+                        return null;
+                    }
+
+                    _log.Warn("进度上报失败：" + (int)response.StatusCode + "，将重试。");
+                    continue;
+                }
+
+                try
+                {
+                    var result = JsonSerializer.Deserialize<ProgressResult>(text, JsonOptions);
+                    return result;
+                }
+                catch (JsonException)
+                {
+                    // 服务器返回了非预期内容（例如被反代改成 HTML），当作失败重试。
+                    _log.Warn("进度上报返回内容无法解析，将重试：" + Truncate(text));
+                    continue;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("进度上报异常（第 " + (attempt + 1) + " 次）：" + ex.Message);
+            }
+        }
+
+        return null;
+    }
+
+    private static string Truncate(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "（空响应）";
+        }
+
+        return text.Length > 200 ? text[..200] : text;
+    }
+
+    /// <summary>
+    /// 取（或创建）指向该服务器的 HttpClient。
+    /// 注意不要把返回值放进 using：它是共享实例，dispose 掉会让后续请求全部失败。
+    /// </summary>
+    /// <param name="baseUri">服务器地址。</param>
+    /// <returns>共享的 HttpClient。</returns>
+    private HttpClient GetClient(Uri baseUri)
+    {
+        var key = baseUri.GetLeftPart(UriPartial.Authority);
+
+        return _clients.GetOrAdd(key, _ => new HttpClient(CreateHandler(baseUri))
+        {
+            // 整季 Resolve 要查库、进度上报要过反代，15 秒对两者都够用。
+            Timeout = TimeSpan.FromSeconds(15)
+        });
     }
 
     private static HttpClientHandler CreateHandler(Uri serverUri)

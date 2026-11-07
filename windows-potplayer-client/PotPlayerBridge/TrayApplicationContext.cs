@@ -26,6 +26,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _uiTimer;
 
     private LocalHttpServer? _server;
+    private PlaybackService? _playback;
     private SettingsForm? _settingsForm;
     private bool _openSettingsWhenReady;
 
@@ -76,6 +77,17 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         _uiTimer.Stop();
 
+        // 退出前把播放进度报成 stopped：用户往往是「看完就关」，这一次上报才是最重要的那次。
+        // 有 10 秒上限，网络不通也不会卡住退出。
+        try
+        {
+            _playback?.StopAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            _log.Warn("退出前上报播放进度失败：" + ex.Message);
+        }
+
         try
         {
             _settingsForm?.Close();
@@ -112,6 +124,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             launcher,
             _runtime,
             _log);
+        _playback = playback;
 
         var routes = new Routes(_config, _locator, _runtime, playback, _log);
         _server = new LocalHttpServer(config.Port, routes.HandleAsync, _log);

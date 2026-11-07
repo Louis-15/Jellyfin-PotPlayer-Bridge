@@ -18,6 +18,9 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         // 季配置是磁盘上的单文件 JSON，进程内只保留一份缓存，必须单例。
         services.AddSingleton<SeasonSettingsStore>();
 
+        // 进度守卫的状态是「进程内的会话表」，必须单例，否则每次请求都拿到新表、armed 记不住。
+        services.AddSingleton<ProgressGuard>();
+
         // 剧集层级查询与播放地址解析从解析器里拆出来，各自只依赖一个 Jellyfin 服务。
         services.AddSingleton<EpisodeLibraryQuery>();
         services.AddSingleton<StreamUrlResolver>();

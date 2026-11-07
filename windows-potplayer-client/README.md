@@ -4,9 +4,9 @@
 它负责启动/监控 PotPlayer、生成播放列表、回写播放进度；网页上的播放按钮由
 [Jellyfin 插件](../server-jellyfin-plugin/) 注入的脚本接管后调用本程序。
 
-> 当前进度：M4（DPL 与拉起）。本程序已经能常驻托盘、提供本机 HTTP 接口、自动发现 PotPlayer、
-> 读写设置，并能在网页点播放时生成整季 DPL、拉起 PotPlayer 播放（`/api/play`）。
-> 进度回写（M5）与片头片尾/字幕（M6）还没做。
+> 当前进度：M5（进度同步）。本程序已经能常驻托盘、提供本机 HTTP 接口、自动发现 PotPlayer、
+> 读写设置，在网页点播放时生成整季 DPL、拉起 PotPlayer，并把播放进度回写到 Jellyfin
+> （含续播跳转与防倒退守卫）。片头片尾跳转与字幕（M6）还没做。
 
 ## 目录结构
 
@@ -30,6 +30,9 @@ windows-potplayer-client/
 │  ├─ Core/PotPlayerLauncher.cs     # 启动/优雅关闭（WM_COMMAND 20002 → WM_CLOSE → Kill 兜底）
 │  ├─ Core/PotPlayerWindow.cs       # 窗口查找与消息
 │  ├─ Core/PlaybackModels.cs        # /api/play 请求、播放计划、错误码
+│  ├─ Core/ProgressModels.cs        # /Progress 请求模型
+│  ├─ Core/PlaybackProgressState.cs # 进度状态机（纯逻辑，可单测）：集匹配 + armed
+│  ├─ Core/PlaybackMonitor.cs       # 采样循环、续播跳转、上报队列
 │  ├─ Http/LocalHttpServer.cs       # TcpListener 极简 HTTP/1.1
 │  ├─ Http/Routes.cs                # 路由、CORS、来源校验
 │  ├─ Http/HttpRequest.cs / HttpResponse.cs
@@ -155,6 +158,31 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 > 里记的 PID，把上次遗留的播放器关掉。否则新旧两个实例会同时播放，M5 的进度回写会互相覆盖。
 > 只会处理该 PID 且进程名匹配 `PotPlayer*` 的情况，你自己开的播放器不受影响。
 
+## 进度同步（M5）
+
+代理在播放期间每秒读一次 `0x5002`（总时长）/`0x5004`（当前位置）/`0x5006`（状态），
+并用窗口标题识别当前是第几集，然后按下面的规则上报：
+
+| 时机 | 行为 |
+| --- | --- |
+| 正常播放 | 每 5 秒一次 |
+| 暂停 / 恢复 | 立即一次 |
+| 拖动进度条（同集内跳变 > 10 秒） | 立即一次，带 `seeked` |
+| 换集 | 上一集 `stopped`（接近结尾则标已看完）+ 新一集开始 |
+| 播到结尾 | 带 `ended`，服务器标记已看完并把位置归零 |
+| 关闭播放器 / 代理退出 | 最后一次 `stopped`，位置精确到关闭前一秒 |
+
+**续播**：`Resolve` 给的 `startPositionTicks` 会被真正执行——媒体就绪后用 `0x5005` 跳到该位置，
+STRM 首次加载慢时重试最多 6 次。
+
+**为什么要有 `armed`**：这是「宁可少报一次，也不要用错误的值覆盖」的落点。
+
+- 只有位置落在期望起播点 ±5 秒（或期望本来就是 0 且连续 3 秒在增长）才 `armed`。
+- 假续播（服务器说从 20:00 续播、播放器却从头开始）**永远不会 armed**，因此不会把 20:00 写成几分钟。
+- 服务器侧还有第二道防线：未 armed 的上报只能往上抬，不能倒退、不能清零。
+
+设计细节见 [PLAN.md](../PLAN.md) 5.7 / 6.6 / 6.9。
+
 ## 配置
 
 配置位置：`%LocalAppData%\PotPlayerBridge\config.json`
@@ -234,7 +262,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -RemoveData
 - 反过来只装服务器插件：网页会注入脚本，但点播放时本机 18927 连不上，
   脚本会提示「无法启动本地 PotPlayer 桥接程序」。
 
-## 当前进度（M4）
+## 当前进度（M5）
 
 - [x] WinForms 托盘、单实例、无主窗口
 - [x] 自包含单文件发布（无需预装 .NET）
@@ -246,4 +274,6 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -RemoveData
 - [x] 实例管理：先关旧实例再写列表，连点只留一个实例；异常退出标记 + 列表快照
 - [x] 代理重启时清理遗留播放器（`potplayer-session.json` 记 PID），避免重装/崩溃后出现两个实例同时播放
 - [x] 列表只写 `%LocalAppData%\PotPlayerBridge\playlists`（不污染 PotPlayer 专辑），清单登记 + 只清理自己的文件（保留最近 5 个）
-- [ ] 进度同步（M5）、片头片尾与字幕（M6）
+- [x] M5：每秒采样（`0x5002/0x5004/0x5006`）+ 窗口标题识集 + armed 状态机 + 5 秒上报
+- [x] M5：续播跳转（`0x5005`，媒体就绪后重试）、暂停/拖动/停止/播完事件上报
+- [ ] 片头片尾与字幕（M6）

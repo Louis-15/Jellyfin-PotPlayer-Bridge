@@ -1,11 +1,11 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Text;
 
 namespace PotPlayerBridge.Core;
 
 /// <summary>
 /// PotPlayer 窗口操作（窗口消息是本项目与播放器交互的主通道）。
-/// M4 只用到「找主窗口 / 停止 / 优雅关闭」，进度读取与跳转在 M5/M6 扩展。
+/// 控制接口来自 PotPlayer 的 Remote Control SDK：<c>SendMessage(hwnd, WM_USER, 命令号, 参数)</c>。
 /// </summary>
 internal static class PotPlayerWindow
 {
@@ -14,6 +14,24 @@ internal static class PotPlayerWindow
 
     /// <summary>WM_CLOSE。</summary>
     public const uint WmClose = 0x0010;
+
+    /// <summary>WM_USER：PotPlayer 控制命令的消息号。</summary>
+    public const uint WmUser = 0x0400;
+
+    /// <summary>取总时长（毫秒）。</summary>
+    public const int CmdGetTotalTime = 0x5002;
+
+    /// <summary>取当前播放位置（毫秒）。</summary>
+    public const int CmdGetCurrentTime = 0x5004;
+
+    /// <summary>设置当前播放位置（毫秒），M6 片头跳跃用。</summary>
+    public const int CmdSetCurrentTime = 0x5005;
+
+    /// <summary>取播放状态：-1 已停止/未加载，0 空闲/播完，1 暂停，2 正在播放。</summary>
+    public const int CmdGetPlayStatus = 0x5006;
+
+    /// <summary>PotPlayer 的「下一集」菜单命令（M6 片尾跳转用）。</summary>
+    public const int NextCommand = 10124;
 
     /// <summary>PotPlayer 的「停止」命令 ID（实测有效，仅停止播放，不退出进程）。</summary>
     public const int StopCommand = 20002;
@@ -103,6 +121,63 @@ internal static class PotPlayerWindow
     public static void SendStop(IntPtr hwnd)
     {
         SendMessage(hwnd, WmCommand, (IntPtr)StopCommand, IntPtr.Zero);
+    }
+
+    /// <summary>发送「下一集」命令（M6 片尾跳转用）。</summary>
+    /// <param name="hwnd">窗口句柄。</param>
+    public static void SendNext(IntPtr hwnd)
+    {
+        SendMessage(hwnd, WmCommand, (IntPtr)NextCommand, IntPtr.Zero);
+    }
+
+    /// <summary>取总时长（毫秒）。读不到时返回 0。</summary>
+    /// <param name="hwnd">窗口句柄。</param>
+    /// <returns>毫秒。</returns>
+    public static long GetTotalTimeMs(IntPtr hwnd)
+    {
+        return Math.Max(0, Query(hwnd, CmdGetTotalTime));
+    }
+
+    /// <summary>取当前播放位置（毫秒）。未加载媒体时可能返回 0。</summary>
+    /// <param name="hwnd">窗口句柄。</param>
+    /// <returns>毫秒。</returns>
+    public static long GetCurrentTimeMs(IntPtr hwnd)
+    {
+        return Math.Max(0, Query(hwnd, CmdGetCurrentTime));
+    }
+
+    /// <summary>取播放状态：-1 停止/未加载，0 空闲/播完，1 暂停，2 播放中。</summary>
+    /// <param name="hwnd">窗口句柄。</param>
+    /// <returns>状态码。</returns>
+    public static int GetPlayStatus(IntPtr hwnd)
+    {
+        return (int)Query(hwnd, CmdGetPlayStatus);
+    }
+
+    /// <summary>把播放位置跳到指定毫秒（M6 片头跳过用）。</summary>
+    /// <param name="hwnd">窗口句柄。</param>
+    /// <param name="positionMs">目标位置。</param>
+    public static void SetCurrentTimeMs(IntPtr hwnd, long positionMs)
+    {
+        SendMessage(hwnd, WmUser, (IntPtr)CmdSetCurrentTime, (IntPtr)positionMs);
+    }
+
+    private static long Query(IntPtr hwnd, int command)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return 0;
+        }
+
+        try
+        {
+            return SendMessage(hwnd, WmUser, (IntPtr)command, IntPtr.Zero).ToInt64();
+        }
+        catch
+        {
+            // 窗口刚好被销毁时 SendMessage 可能抛异常，按「读不到」处理。
+            return 0;
+        }
     }
 
     /// <summary>请求关闭窗口（优雅退出）。</summary>
