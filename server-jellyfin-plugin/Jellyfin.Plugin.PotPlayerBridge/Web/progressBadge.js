@@ -56,8 +56,20 @@
         return hours > 0 ? hours + ':' + mm + ':' + ss : mm + ':' + ss;
     }
 
+    /**
+     * 只有「指向具体某集/某部电影」的卡片才显示角标。
+     * 剧（Series）、季（Season）、合集（BoxSet）不显示：它们每集的时长都不一样，
+     * 在卡片上写一个总时长只会误导（用户在首页看到剧卡片时想看的是"这剧多长"，而这个数字并不存在）。
+     */
+    var SHOWABLE_TYPES = { Episode: 1, Movie: 1, Video: 1 };
+
     function buildText(info) {
-        if (!info || !info.runtimeTicks || info.runtimeTicks <= 0) {
+        if (!info || !SHOWABLE_TYPES[info.itemType]) {
+            return null;
+        }
+
+        // 没有时长元数据（STRM 常见）就不显示：少一个数字比显示「0:00 / 0:00」好。
+        if (!info.runtimeTicks || info.runtimeTicks <= 0) {
             return null;
         }
 
@@ -152,6 +164,12 @@
         document.querySelectorAll('.card[data-id], .listItem[data-id]').forEach(function (element) {
             var id = normalizeId(element.getAttribute('data-id'));
             if (!id || !element.getClientRects().length) {
+                return;
+            }
+
+            // 首页/媒体库里的剧卡片、季卡片直接跳过：既不显示角标，也不用为它发请求。
+            var domType = element.getAttribute('data-type');
+            if (domType && !SHOWABLE_TYPES[domType]) {
                 return;
             }
 

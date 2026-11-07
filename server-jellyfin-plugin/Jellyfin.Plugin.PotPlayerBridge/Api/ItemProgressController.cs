@@ -115,6 +115,9 @@ public sealed class ItemProgressController : BridgeControllerBase
         return new
         {
             itemId = item.Id.ToString("N"),
+            // 前端要据此决定「该不该显示角标」：剧/季/合集不显示（每集时长不同，没有意义），
+            // 只有具体某集、某部电影才有「看到哪/共多久」。
+            itemType = item.GetType().Name,
             positionTicks = data?.PlaybackPositionTicks ?? 0,
             runtimeTicks = item.RunTimeTicks ?? 0,
             played = data?.Played ?? false

@@ -26,6 +26,7 @@ server-jellyfin-plugin/
 │  │  ├─ BridgeControllerBase.cs    # 统一 JSON / 错误结构 / 当前用户
 │  │  ├─ PlaybackController.cs      # /Resolve、/ItemInfo
 │  │  ├─ ProgressController.cs      # /Progress 进度回写
+│  │  ├─ ItemProgressController.cs  # /ItemProgress 卡片角标批量查询
 │  │  └─ SeasonSettingsController.cs# 季配置读写
 │  ├─ Core/
 │  │  ├─ ClientScriptInjectionFilter.cs  # 请求时改写 index.html
@@ -40,6 +41,7 @@ server-jellyfin-plugin/
 │  ├─ Web/
 │  │  ├─ clientScript.js            # 注入到网页的引导脚本
 │  │  ├─ seasonPanel.js             # 季/集详情页的片头片尾面板
+│  │  ├─ progressBadge.js           # 卡片图片左上角的「已看/总时长」角标
 │  │  └─ seasonSettings.css         # 面板样式（只作用于 .ppb*）
 │  ├─ meta.json                     # Jellyfin 插件元数据
 │  └─ logo.png
@@ -194,6 +196,7 @@ ssh -p 2222 root@931002.xyz "rm -rf '/www/jellyfin/config/plugins/PotPlayer Brid
 | POST | `/PotPlayerBridge/SeasonSettings` | 保存季配置 `{ itemId, introSeconds, outroSeconds }` |
 | POST | `/PotPlayerBridge/Resolve` | 解析播放计划 `{ itemId, intent }`，intent 为 `item` / `resume` / `restart` |
 | POST | `/PotPlayerBridge/Progress` | 写播放进度（带防倒退守卫），`{ playSessionId, itemId, positionTicks, durationTicks, isPaused, stopped, armed, seeked, ended }` |
+| GET | `/PotPlayerBridge/ItemProgress?itemIds=` | 卡片角标：批量返回 `itemType` / 位置 / 总时长 / 是否已看（最多 100 个） |
 
 `/Resolve` 返回的 `startPositionTicks` 已经合并了「续播 + 片头跳过」：
 续播点落在片头里时跳到片头结束，已经超过片头时保持原位置（D7），`restart` 则从 0 开始但仍按季配置跳片头（D-04）。
@@ -215,6 +218,8 @@ ssh -p 2222 root@931002.xyz "rm -rf '/www/jellyfin/config/plugins/PotPlayer Brid
 - [x] M2：16 个单元测试覆盖排序、兜底、片头计算
 - [x] M4：`PlayClient.js` 接管播放按钮（卡片 / 季页剧集行 / 详情页播放），调用本机 `/api/play`
 - [x] M5：`/Progress` 进度回写 + `ProgressGuard` 防倒退守卫（未 armed 的上报只能抬高、不能倒退或清零）
+- [x] M5.5：卡片进度角标（图片左上角 `16:07 / 30:22`，仅限集/电影；剧与季不显示）
+- [x] M5.5：暂停/拖动/播完改用会广播的 `SaveReason`，网页立即更新（不再等半分钟）
 
 ## 故障排查
 

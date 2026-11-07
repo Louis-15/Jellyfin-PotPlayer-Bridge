@@ -1002,9 +1002,19 @@ saveplaypos=0
   - 没看过 → `0:00 / 30:22`
   - 已看完 → 显示「已看完」
   - 拿不到总时长（元数据缺失）→ 不显示角标
-- **覆盖范围**：所有 `.card[data-id]`（首页/媒体库/接下来/季页集卡片）+ 详情页海报。电影同理。
+- **覆盖范围：只限「指向具体某一集/某部电影」的卡片**（`data-type` 为 `Episode` / `Movie`）。
+  剧（Series）、季（Season）、合集（BoxSet）一律不显示 —— 它们每集时长都不一样，
+  在卡片上写一个数字只会误导（用户要的「这剧多长」这个数字本身不存在）。
+  - 首页/媒体库：「继续观看」的集卡片、电影卡片显示；剧卡片、季卡片不显示。
+  - 「接下来」：显示（永远是具体某一集）。
+  - 季页剧集行（`.listItem`）：显示。
+  - 详情页海报：「集/电影」详情页显示，「剧/季」详情页不显示。
+- **为什么有的卡片没数字**：Jellyfin 的 `RunTimeTicks` 来自媒体元数据。STRM 文件若没有
+  `nfo` 里的 `<runtime>`，Jellyfin 探测不到时长，`RunTimeTicks` 就是 0 —— 这时没有第二个
+  数字可显示。这不是「播放过才有」，而是「有没有元数据」。
+  实测：誓言无声（STRM）多数集为 0，鹊刀门传奇有完整时长。
 - **数据来源**：新增批量接口 `GET /PotPlayerBridge/ItemProgress?itemIds=a,b,c`，
-  一次返回 `{ itemId, positionTicks, runtimeTicks, played }`。
+  一次返回 `{ itemId, itemType, positionTicks, runtimeTicks, played }`。
   为什么不用卡片上的 `data-positionticks`：它只在「继续观看」卡片上有，且没有总时长与已看状态。
 - **更新时机**：页面渲染/路由切换时补算；收到 WebSocket `UserDataChanged` 时增量更新。
 
