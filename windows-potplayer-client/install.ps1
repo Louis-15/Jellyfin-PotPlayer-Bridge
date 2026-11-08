@@ -12,7 +12,9 @@
     配置与日志不会被覆盖：它们和 exe 不在同一个文件里。
 
 .PARAMETER Source
-    发布产物目录，默认 .\artifacts\PotPlayerBridge。
+    发布产物目录，默认自动查找：
+      1. 脚本同目录下的 PotPlayerBridge.exe（解压发布包后的情形）
+      2. .\artifacts\PotPlayerBridge（开发仓库内的情形）
 
 .PARAMETER NoStart
     安装完成后不自动启动。
@@ -30,7 +32,13 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not $Source) {
-    $Source = Join-Path $PSScriptRoot 'artifacts\PotPlayerBridge'
+    # 发布包里 exe 和本脚本在同一层；开发仓库里在 artifacts\PotPlayerBridge 下。
+    # 两种都要能直接双击/运行，所以按顺序探测而不是写死一个路径。
+    if (Test-Path (Join-Path $PSScriptRoot 'PotPlayerBridge.exe')) {
+        $Source = $PSScriptRoot
+    } else {
+        $Source = Join-Path $PSScriptRoot 'artifacts\PotPlayerBridge'
+    }
 }
 
 $sourceExe = Join-Path $Source 'PotPlayerBridge.exe'
