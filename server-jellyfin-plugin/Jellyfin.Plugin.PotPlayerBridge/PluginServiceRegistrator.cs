@@ -24,6 +24,7 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         // 剧集层级查询与播放地址解析从解析器里拆出来，各自只依赖一个 Jellyfin 服务。
         services.AddSingleton<EpisodeLibraryQuery>();
         services.AddSingleton<StreamUrlResolver>();
+        services.AddSingleton<SubtitleResolver>();
 
         // 解析器无状态，注入 Jellyfin 的库/用户/数据服务。
         services.AddSingleton<PlaybackResolver>();

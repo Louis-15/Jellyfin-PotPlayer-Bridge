@@ -79,7 +79,76 @@ public sealed class PotPlayerLauncher
     /// <param name="dplPath">DPL 文件路径。</param>
     /// <param name="cancellationToken">取消令牌。</param>
     /// <returns>启动结果。</returns>
-    public async Task<LaunchResult> LaunchAsync(string exePath, string dplPath, CancellationToken cancellationToken)
+    public Task<LaunchResult> LaunchAsync(string exePath, string dplPath, CancellationToken cancellationToken)
+    {
+        // /new：让 PotPlayer 以「全新播放列表」启动，不吃上次残留的列表状态。
+        return LaunchCoreAsync(
+            exePath,
+            new[] { dplPath, "/new" },
+            rawArguments: false,
+            "DPL=" + dplPath,
+            dplPath,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// 单集直启（电影 / 单片视频专用）：直接播放视频地址，并用 <c>/sub=</c> 挂上外挂字幕。
+    /// <para>
+    /// 为什么电影不能用 DPL：实测 PotPlayer 的 DPL 格式没有字幕字段（<c>N*sub*</c> 被静默忽略），
+    /// 只要用播放列表启动，<c>/sub=</c> 参数就会被丢弃；只有「直接播放视频地址」时字幕才生效。
+    /// 剧集仍走整季 DPL（内嵌字幕够用，还能保留完整列表）。
+    /// </para>
+    /// <para>
+    /// 这里刻意不加 <c>/new</c>：实测它会和 <c>/sub=</c> 一起使用时把字幕参数丢掉。
+    /// 调用方已经先关掉旧实例，所以播放列表本来就是空的，不需要 /new。
+    /// </para>
+    /// </summary>
+    /// <param name="exePath">PotPlayer 可执行文件。</param>
+    /// <param name="streamUrl">视频直链。</param>
+    /// <param name="subtitlePath">本地字幕绝对路径；没有字幕传 null。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>启动结果。</returns>
+    public Task<LaunchResult> LaunchSingleAsync(
+        string exePath,
+        string streamUrl,
+        string? subtitlePath,
+        CancellationToken cancellationToken)
+    {
+        // 参数必须手工拼成原始命令行字符串，不能用 ArgumentList。
+        // 实测差别（很关键）：ArgumentList 会把整个参数用引号包起来，得到
+        //     "/sub=D:\a b\c.srt"
+        // 而 PotPlayer 只认这种形式：
+        //     /sub="D:\a b\c.srt"
+        // 前者不报错、也不加载字幕，排查起来毫无线索。
+        var arguments = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(subtitlePath))
+        {
+            arguments.Add("/sub=" + QuoteIfNeeded(subtitlePath));
+        }
+
+        arguments.Add(QuoteIfNeeded(streamUrl));
+
+        var description = "直链=" + streamUrl + (subtitlePath is null ? "（无字幕）" : "，字幕=" + subtitlePath);
+
+        return LaunchCoreAsync(exePath, arguments, rawArguments: true, description, streamUrl, cancellationToken);
+    }
+
+    /// <summary>只在含空格时加引号，避免改变 PotPlayer 的参数解析。</summary>
+    private static string QuoteIfNeeded(string value)
+    {
+        return value.Contains(' ') || value.Contains('\t')
+            ? "\"" + value.Replace("\"", string.Empty, StringComparison.Ordinal) + "\""
+            : value;
+    }
+
+    private async Task<LaunchResult> LaunchCoreAsync(
+        string exePath,
+        IReadOnlyList<string> arguments,
+        bool rawArguments,
+        string description,
+        string sessionTarget,
+        CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -88,8 +157,17 @@ public sealed class PotPlayerLauncher
             WorkingDirectory = Path.GetDirectoryName(exePath) ?? Environment.CurrentDirectory
         };
 
-        startInfo.ArgumentList.Add(dplPath);
-        startInfo.ArgumentList.Add("/new");
+        if (rawArguments)
+        {
+            startInfo.Arguments = string.Join(' ', arguments);
+        }
+        else
+        {
+            foreach (var argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+        }
 
         Process? process;
         try
@@ -106,7 +184,7 @@ public sealed class PotPlayerLauncher
             throw new PlaybackException(500, "启动 PotPlayer 失败：进程没有创建成功。", "launch-failed");
         }
 
-        _log.Info("已启动 PotPlayer：PID=" + process.Id + "，DPL=" + dplPath);
+        _log.Info("已启动 PotPlayer：PID=" + process.Id + "，" + description);
 
         var handle = await WaitForWindowAsync(process, TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
         if (handle == IntPtr.Zero)
@@ -121,7 +199,7 @@ public sealed class PotPlayerLauncher
             _window = handle;
         }
 
-        SaveSession(process.Id, dplPath);
+        SaveSession(process.Id, sessionTarget);
 
         return new LaunchResult(process.Id, handle);
     }
@@ -151,7 +229,7 @@ public sealed class PotPlayerLauncher
             }
 
             var window = PotPlayerWindow.FindMainWindow(record.ProcessId);
-            _log.Warn("发现上次遗留的 PotPlayer（PID=" + record.ProcessId + "，列表=" + record.DplPath + "），先关闭它。");
+            _log.Warn("发现上次遗留的 PotPlayer（PID=" + record.ProcessId + "，目标=" + record.Target + "），先关闭它。");
 
             if (window != IntPtr.Zero)
             {
@@ -204,14 +282,14 @@ public sealed class PotPlayerLauncher
         }
     }
 
-    private void SaveSession(int processId, string dplPath)
+    private void SaveSession(int processId, string target)
     {
         try
         {
             Directory.CreateDirectory(AppPaths.DataDirectory);
             File.WriteAllText(
                 SessionPath,
-                JsonSerializer.Serialize(new SessionRecord(processId, dplPath), SessionJson),
+                JsonSerializer.Serialize(new SessionRecord(processId, target), SessionJson),
                 new UTF8Encoding(false));
         }
         catch (Exception ex)
@@ -256,7 +334,7 @@ public sealed class PotPlayerLauncher
         }
     }
 
-    private sealed record SessionRecord(int ProcessId, string DplPath);
+    private sealed record SessionRecord(int ProcessId, string Target);
 
     /// <summary>
     /// 优雅关闭本代理拉起的实例。

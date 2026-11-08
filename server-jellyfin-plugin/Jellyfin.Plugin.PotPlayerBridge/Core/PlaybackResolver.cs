@@ -27,6 +27,7 @@ public sealed class PlaybackResolver
     private readonly IUserDataManager _userData;
     private readonly EpisodeLibraryQuery _episodes;
     private readonly StreamUrlResolver _streams;
+    private readonly SubtitleResolver _subtitles;
     private readonly SeasonSettingsStore _seasonSettings;
     private readonly ILogger<PlaybackResolver> _logger;
 
@@ -36,6 +37,7 @@ public sealed class PlaybackResolver
     /// <param name="userData">用户进度。</param>
     /// <param name="episodes">剧集查询。</param>
     /// <param name="streams">播放地址。</param>
+    /// <param name="subtitles">外挂字幕。</param>
     /// <param name="seasonSettings">季配置。</param>
     /// <param name="logger">Logger.</param>
     public PlaybackResolver(
@@ -44,6 +46,7 @@ public sealed class PlaybackResolver
         IUserDataManager userData,
         EpisodeLibraryQuery episodes,
         StreamUrlResolver streams,
+        SubtitleResolver subtitles,
         SeasonSettingsStore seasonSettings,
         ILogger<PlaybackResolver> logger)
     {
@@ -52,6 +55,7 @@ public sealed class PlaybackResolver
         _userData = userData;
         _episodes = episodes;
         _streams = streams;
+        _subtitles = subtitles;
         _seasonSettings = seasonSettings;
         _logger = logger;
     }
@@ -216,7 +220,8 @@ public sealed class PlaybackResolver
                 ParentIndexNumber = snapshot.SeasonNumber,
                 Title = snapshot.Title,
                 StreamUrl = await _streams.ResolveAsync(entity, user, cancellationToken).ConfigureAwait(false),
-                RuntimeTicks = snapshot.RuntimeTicks
+                RuntimeTicks = snapshot.RuntimeTicks,
+                Subtitles = await _subtitles.ResolveAsync(entity, user, cancellationToken).ConfigureAwait(false)
             });
         }
 

@@ -214,6 +214,45 @@ public sealed class JellyfinClient
     }
 
     /// <summary>
+    /// 下载服务器上的二进制内容（字幕）。走和 Resolve 相同的证书策略与 Authorization 头。
+    /// </summary>
+    /// <param name="serverUrl">服务器地址。</param>
+    /// <param name="accessToken">访问令牌（只在内存中使用）。</param>
+    /// <param name="relativeUrl">服务器返回的相对地址，例如 /Videos/{id}/{ms}/Subtitles/0/Stream.subrip。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
+    /// <returns>内容字节；失败返回 null。</returns>
+    public async Task<byte[]?> DownloadAsync(
+        string serverUrl,
+        string accessToken,
+        string relativeUrl,
+        CancellationToken cancellationToken)
+    {
+        var baseUri = new Uri(serverUrl.TrimEnd('/'));
+        var endpoint = relativeUrl.StartsWith("/", StringComparison.Ordinal)
+            ? new Uri(baseUri, relativeUrl)
+            : new Uri(new Uri(baseUri + "/"), relativeUrl);
+
+        var client = GetClient(baseUri);
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.TryAddWithoutValidation(
+            "Authorization",
+            "MediaBrowser Token=\"" + accessToken + "\"");
+
+        using var response = await client
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _log.Warn("下载字幕失败：" + (int)response.StatusCode + " " + endpoint.AbsolutePath);
+            return null;
+        }
+
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// 取（或创建）指向该服务器的 HttpClient。
     /// 注意不要把返回值放进 using：它是共享实例，dispose 掉会让后续请求全部失败。
     /// </summary>

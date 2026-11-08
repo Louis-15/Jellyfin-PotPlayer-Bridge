@@ -267,4 +267,23 @@ public class PlaybackProgressStateTests
         Assert.Equal(2, signal.Index);
         Assert.False(signal.Armed);
     }
+
+    [Fact]
+    public void Single_Item_Mode_Matches_Without_Title_And_Still_Arms()
+    {
+        // 电影单集直启：PotPlayer 的标题是视频文件名（PFES-107.mp4），
+        // 与 Jellyfin 标题不同源，按标题匹配必然失败。
+        // 这时必须直接认定为起播项，否则整场电影的进度都不会上报。
+        var plan = Plan(0, startIndex: 1);
+        plan.ItemType = "Movie";
+        plan.Playlist.RemoveRange(1, 2);
+        plan.Playlist[0].Title = "PFES-107 很长的日文标题";
+
+        var state = new PlaybackProgressState(plan, singleItemMode: true);
+        state.Feed(new PlaybackSample("PFES-107.mp4 - PotPlayer", 300, DurationMs, 2), out var signal);
+
+        Assert.Equal(1, signal.Index);
+        Assert.Equal("item-1", signal.ItemId);
+        Assert.True(signal.Armed);
+    }
 }

@@ -35,6 +35,12 @@ public sealed class PlaybackMonitor : IAsyncDisposable
     private long _lastReportAt;
     private PlaybackSignal _lastSignal;
 
+    /// <summary>片尾跳转是否已经发过：同一集只跳一次，否则会在阈值附近反复触发。</summary>
+    private bool _outroSent;
+
+    /// <summary>当前使用的窗口句柄（片尾跳转要用）。</summary>
+    private IntPtr _handle;
+
     /// <summary>最后一次「位置 > 0」的快照。换集/停止时用它兜底，避免把 0 写成上一集的进度。</summary>
     private PlaybackSignal _lastPositiveSignal;
 
@@ -47,19 +53,24 @@ public sealed class PlaybackMonitor : IAsyncDisposable
     /// <param name="processId">PotPlayer 进程 ID。</param>
     /// <param name="jellyfin">服务器调用。</param>
     /// <param name="log">日志。</param>
+    /// <param name="singleItemMode">
+    /// 是否「单集直启」模式（电影/单片视频直接播视频地址 + /sub）。
+    /// 该模式下窗口标题是文件名，不能按 Jellyfin 标题识别集号。
+    /// </param>
     public PlaybackMonitor(
         PlaybackPlan plan,
         string serverUrl,
         string accessToken,
         int processId,
         JellyfinClient jellyfin,
-        Logger log)
+        Logger log,
+        bool singleItemMode = false)
     {
         _plan = plan;
         _processId = processId;
         _log = log;
 
-        _state = new PlaybackProgressState(plan);
+        _state = new PlaybackProgressState(plan, singleItemMode);
         _sender = new ProgressSender(plan, serverUrl, accessToken, jellyfin, log);
         _lastSignal = new PlaybackSignal(
             _state.CurrentItemId,
@@ -155,6 +166,8 @@ public sealed class PlaybackMonitor : IAsyncDisposable
                     PotPlayerWindow.GetTotalTimeMs(handle),
                     PotPlayerWindow.GetPlayStatus(handle));
 
+                _handle = handle;
+
                 var previous = _lastSignal;
                 var change = _state.Feed(sample, out var signal);
                 _lastSignal = signal;
@@ -165,9 +178,12 @@ public sealed class PlaybackMonitor : IAsyncDisposable
                 }
 
                 ApplyResumeSeek(handle, sample);
+                ApplyOutro(sample);
 
                 if (change == PlaybackChange.EpisodeChanged)
                 {
+                    // 换集后重置片尾标记，否则下一集的片尾不会触发。
+                    _outroSent = false;
                     ReportEpisodeChange(previous, signal);
                 }
                 else if (change != PlaybackChange.None)
@@ -287,6 +303,51 @@ public sealed class PlaybackMonitor : IAsyncDisposable
         // 「最后一次读到的正数位置」，这才是用户真正看到哪儿。
         var finalSignal = _state.Snapshot(new PlaybackSample(string.Empty, 0, 0, -1), stopped: true);
         await _sender.FlushAsync(finalSignal).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 片尾自动下一集（PLAN 6.7 / D4）。
+    /// 条件是「靠近结尾、还有下一集、这一集还没跳过一次」。
+    /// 最后一集不跳也不循环 —— PotPlayer 播完最后一项会自然停止，播完标记由状态机的 Ended 负责。
+    /// </summary>
+    private void ApplyOutro(PlaybackSample sample)
+    {
+        // 电影不跳片尾（需求明确排除：很多电影片尾有彩蛋/信息）。
+        if (_plan.ItemType is not "Episode")
+        {
+            return;
+        }
+
+        // 未配置片尾的季什么都不做（D5）。
+        if (_plan.OutroSeconds <= 0 || _outroSent)
+        {
+            return;
+        }
+
+        if (_state.Index >= _state.Count)
+        {
+            // 最后一集：不跳。让 PotPlayer 自己播完，状态机会把它标记为已看完。
+            return;
+        }
+
+        var durationMs = sample.DurationMs;
+        if (durationMs <= 0)
+        {
+            return;
+        }
+
+        var threshold = durationMs - (_plan.OutroSeconds * 1000L);
+        if (sample.PositionMs < threshold)
+        {
+            return;
+        }
+
+        _outroSent = true;
+        _log.Info(
+            "到达片尾（" + FormatMs(sample.PositionMs) + " / " + FormatMs(durationMs) +
+            "，片尾 " + _plan.OutroSeconds + " 秒），跳到下一集。");
+
+        PotPlayerWindow.SendNext(_handle);
     }
 
     private IntPtr ResolveWindow()

@@ -67,7 +67,9 @@ public sealed class PlaylistStore
         // 2. 写入（UTF-8 BOM + CRLF；DPL 内容由 DplBuilder 生成）
         var content = DplBuilder.Build(plan);
         await File.WriteAllTextAsync(target, content, new UTF8Encoding(true), cancellationToken).ConfigureAwait(false);
-        _log.Info("已写入 DPL：" + target + "（列表 " + plan.Playlist.Count + " 项，起播 " + plan.StartIndex + "）");
+        _log.Info(
+            "已写入 DPL：" + target +
+            "（列表 " + plan.Playlist.Count + " 项，起播 " + plan.StartIndex + "）");
 
         // 3. 登记 + 清理只属于本代理的旧文件
         manifest = Register(manifest, target, directory);

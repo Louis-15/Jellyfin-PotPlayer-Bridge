@@ -19,6 +19,7 @@ public sealed class PlaybackService
     private readonly PotPlayerLocator _locator;
     private readonly JellyfinClient _jellyfin;
     private readonly PlaylistStore _playlists;
+    private readonly SubtitleDownloader _subtitles;
     private readonly PotPlayerLauncher _launcher;
     private readonly AgentRuntime _runtime;
     private readonly Logger _log;
@@ -32,6 +33,7 @@ public sealed class PlaybackService
     /// <param name="locator">路径发现。</param>
     /// <param name="jellyfin">服务器调用。</param>
     /// <param name="playlists">DPL 管理。</param>
+    /// <param name="subtitles">字幕下载。</param>
     /// <param name="launcher">播放器启动/关闭。</param>
     /// <param name="runtime">运行期状态。</param>
     /// <param name="log">日志。</param>
@@ -40,6 +42,7 @@ public sealed class PlaybackService
         PotPlayerLocator locator,
         JellyfinClient jellyfin,
         PlaylistStore playlists,
+        SubtitleDownloader subtitles,
         PotPlayerLauncher launcher,
         AgentRuntime runtime,
         Logger log)
@@ -48,6 +51,7 @@ public sealed class PlaybackService
         _locator = locator;
         _jellyfin = jellyfin;
         _playlists = playlists;
+        _subtitles = subtitles;
         _launcher = launcher;
         _runtime = runtime;
         _log = log;
@@ -92,32 +96,78 @@ public sealed class PlaybackService
             await StopMonitorAsync().ConfigureAwait(false);
             await _launcher.CloseOwnedAsync(cancellationToken).ConfigureAwait(false);
 
-            var write = await _playlists.WriteAsync(plan, cancellationToken).ConfigureAwait(false);
-            var launch = await _launcher.LaunchAsync(exePath, write.DplPath, cancellationToken).ConfigureAwait(false);
+            // 字幕下载与启动方式：电影/单片视频走「单集直启 + /sub」，剧集走整季 DPL。
+            // 原因见 PotPlayerLauncher.LaunchSingleAsync 的注释（DPL 格式没有字幕字段）。
+            var directLaunch = ShouldLaunchSingle(plan);
 
-            _runtime.SetCurrentPlayback(plan, launch.ProcessId, launch.WindowHandle);
+            if (directLaunch)
+            {
+                var entry = plan.Playlist[Math.Clamp(plan.StartIndex, 1, plan.Playlist.Count) - 1];
 
-            _monitor = new PlaybackMonitor(
-                plan,
-                request.ServerUrl!,
-                request.AccessToken!,
-                launch.ProcessId,
-                _jellyfin,
-                _log);
+                var subtitlePath = await _subtitles
+                    .DownloadOneAsync(entry, plan.PlaySessionId, request.ServerUrl!, request.AccessToken!, cancellationToken)
+                    .ConfigureAwait(false);
+
+                // DPL 仍然写：用户想手动打开这份列表时随时能用，也保留写前快照/清单机制。
+                var write = await _playlists.WriteAsync(plan, cancellationToken).ConfigureAwait(false);
+                var launch = await _launcher
+                    .LaunchSingleAsync(exePath, entry.StreamUrl, subtitlePath, cancellationToken)
+                    .ConfigureAwait(false);
+
+                _runtime.SetCurrentPlayback(plan, launch.ProcessId, launch.WindowHandle);
+                _monitor = CreateMonitor(plan, request, launch.ProcessId, singleItemMode: true);
+                _monitor.Start();
+
+                _log.Info(
+                    "播放已启动（单集直启）：" + plan.Title +
+                    "，字幕 " + (subtitlePath is null ? "无" : "已挂载") +
+                    "，PID=" + launch.ProcessId);
+
+                return new PlayResponse(plan, write, launch);
+            }
+
+            var playlistWrite = await _playlists.WriteAsync(plan, cancellationToken).ConfigureAwait(false);
+            var playlistLaunch = await _launcher.LaunchAsync(exePath, playlistWrite.DplPath, cancellationToken).ConfigureAwait(false);
+
+            _runtime.SetCurrentPlayback(plan, playlistLaunch.ProcessId, playlistLaunch.WindowHandle);
+
+            _monitor = CreateMonitor(plan, request, playlistLaunch.ProcessId, singleItemMode: false);
             _monitor.Start();
 
             _log.Info(
                 "播放已启动：" + plan.PlaylistName +
                 "，起播第 " + plan.StartIndex + " 项" +
                 "，列表 " + plan.Playlist.Count + " 项" +
-                "，PID=" + launch.ProcessId);
+                "，PID=" + playlistLaunch.ProcessId);
 
-            return new PlayResponse(plan, write, launch);
+            return new PlayResponse(plan, playlistWrite, playlistLaunch);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// 电影/单片视频走单集直启，剧集走整季 DPL。
+    /// 依据是服务器返回的 <see cref="PlaybackPlan.ItemType"/>：
+    /// Episode 是剧集，Movie / Video 是单片（含 AV 等）。
+    /// </summary>
+    private static bool ShouldLaunchSingle(PlaybackPlan plan)
+    {
+        return plan.ItemType is "Movie" or "Video";
+    }
+
+    private PlaybackMonitor CreateMonitor(PlaybackPlan plan, PlayRequest request, int processId, bool singleItemMode)
+    {
+        return new PlaybackMonitor(
+            plan,
+            request.ServerUrl!,
+            request.AccessToken!,
+            processId,
+            _jellyfin,
+            _log,
+            singleItemMode);
     }
 
     /// <summary>

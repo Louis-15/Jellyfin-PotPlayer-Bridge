@@ -89,6 +89,7 @@ public sealed class PlaybackProgressState
     private readonly PlaybackPlan _plan;
     private readonly int _startIndex;
     private readonly long _startPositionMs;
+    private readonly bool _singleItemMode;
 
     private int _index;
     private bool _armed;
@@ -107,7 +108,12 @@ public sealed class PlaybackProgressState
 
     /// <summary>Initializes a new instance of the <see cref="PlaybackProgressState"/> class.</summary>
     /// <param name="plan">服务器返回的播放计划。</param>
-    public PlaybackProgressState(PlaybackPlan plan)
+    /// <param name="singleItemMode">
+    /// 是否「单集直启」模式（电影/单片视频直接播放视频地址 + /sub）。
+    /// 这种模式下 PotPlayer 的窗口标题是<b>文件名</b>而不是 Jellyfin 标题，
+    /// 按标题前缀匹配永远识别不出集号，所以直接固定为起播项。
+    /// </param>
+    public PlaybackProgressState(PlaybackPlan plan, bool singleItemMode = false)
     {
         if (plan.Playlist.Count == 0)
         {
@@ -115,6 +121,7 @@ public sealed class PlaybackProgressState
         }
 
         _plan = plan;
+        _singleItemMode = singleItemMode;
         _startIndex = Math.Clamp(plan.StartIndex, 1, plan.Playlist.Count);
         _index = _startIndex;
         _startPositionMs = Math.Max(0, plan.StartPositionTicks / TimeSpan.TicksPerMillisecond);
@@ -307,6 +314,13 @@ public sealed class PlaybackProgressState
     /// <returns>1 开始的序号；识别不出返回 0。</returns>
     private int MatchTitle(string title)
     {
+        if (_singleItemMode)
+        {
+            // 单集直启：PotPlayer 的标题是视频文件名，和 Jellyfin 标题不同源，匹配必然失败。
+            // 这次播放只有一个视频，直接认定就是起播项（返回 0 会让进度完全不上报）。
+            return _startIndex;
+        }
+
         if (string.IsNullOrWhiteSpace(title))
         {
             return 0;
