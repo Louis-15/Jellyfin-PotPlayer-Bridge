@@ -35,6 +35,13 @@ public sealed class ProgressReport
     /// 服务器据此改用会广播 UserDataChanged 的保存理由，让网页立刻显示新一集的进度。
     /// </summary>
     public bool EpisodeStart { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether 要求服务器把这次保存广播出去。
+    /// 代理每分钟置一次，让网页上的进度条/角标自己走起来；
+    /// 中间每 5 秒的上报不带这个标记，仍按 PlaybackProgress 静默写入，避免刷屏。
+    /// </summary>
+    public bool Publish { get; set; }
 }
 
 /// <summary>服务器的进度写入结果。</summary>

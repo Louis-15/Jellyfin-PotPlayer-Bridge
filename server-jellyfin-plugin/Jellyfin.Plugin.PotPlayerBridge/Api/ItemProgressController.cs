@@ -26,19 +26,23 @@ public sealed class ItemProgressController : BridgeControllerBase
     private readonly ILibraryManager _library;
     private readonly IUserManager _users;
     private readonly IUserDataManager _userData;
+    private readonly RuntimeDurationStore _durations;
 
     /// <summary>Initializes a new instance of the <see cref="ItemProgressController"/> class.</summary>
     /// <param name="library">媒体库。</param>
     /// <param name="users">用户管理。</param>
     /// <param name="userData">用户数据。</param>
+    /// <param name="durations">实测时长记录（RunTimeTicks 缺失时兜底）。</param>
     public ItemProgressController(
         ILibraryManager library,
         IUserManager users,
-        IUserDataManager userData)
+        IUserDataManager userData,
+        RuntimeDurationStore durations)
     {
         _library = library;
         _users = users;
         _userData = userData;
+        _durations = durations;
     }
 
     /// <summary>
@@ -112,6 +116,14 @@ public sealed class ItemProgressController : BridgeControllerBase
     {
         var data = _userData.GetUserData(user, item);
 
+        // RunTimeTicks 是扫描时探测的元数据，STRM 条目基本拿不到（扫描器不会去拉远端视频）。
+        // 这时用「播放器实测到的时长」兜底：只要这一集被播过一次，角标就能显示数字。
+        var runtimeTicks = item.RunTimeTicks ?? 0;
+        if (runtimeTicks <= 0)
+        {
+            runtimeTicks = _durations.Get(item.Id);
+        }
+
         return new
         {
             itemId = item.Id.ToString("N"),
@@ -119,7 +131,7 @@ public sealed class ItemProgressController : BridgeControllerBase
             // 只有具体某集、某部电影才有「看到哪/共多久」。
             itemType = item.GetType().Name,
             positionTicks = data?.PlaybackPositionTicks ?? 0,
-            runtimeTicks = item.RunTimeTicks ?? 0,
+            runtimeTicks,
             played = data?.Played ?? false
         };
     }

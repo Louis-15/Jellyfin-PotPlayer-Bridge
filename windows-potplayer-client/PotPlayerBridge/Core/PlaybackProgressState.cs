@@ -54,6 +54,10 @@ public enum PlaybackChange
 /// 服务器据此改用会广播 UserDataChanged 的保存理由，让网页立即显示新一集的进度，
 /// 而不是等下一次暂停/停止才刷新。
 /// </param>
+/// <param name="Publish">
+/// 是否要求服务器广播这次保存（用于每分钟一次的常规进度刷新）。
+/// 数据精度仍然是 5 秒一次；只有带这个标记的那一次才通知网页重绘。
+/// </param>
 public readonly record struct PlaybackSignal(
     string ItemId,
     int Index,
@@ -64,7 +68,8 @@ public readonly record struct PlaybackSignal(
     bool Stopped,
     bool Seeked,
     bool Ended,
-    bool EpisodeStart = false);
+    bool EpisodeStart = false,
+    bool Publish = false);
 
 /// <summary>
 /// 代理侧的播放进度状态机（PLAN 5.7）。纯逻辑、不碰窗口消息，所以能单测。
@@ -337,7 +342,8 @@ public sealed class PlaybackProgressState
             Stopped: stopped,
             Seeked: seeked,
             Ended: ended,
-            EpisodeStart: false);
+            EpisodeStart: false,
+            Publish: false);
     }
 
     /// <summary>

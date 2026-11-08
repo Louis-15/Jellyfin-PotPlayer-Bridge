@@ -18,6 +18,10 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         // 季配置是磁盘上的单文件 JSON，进程内只保留一份缓存，必须单例。
         services.AddSingleton<SeasonSettingsStore>();
 
+        // 「播放器实测时长」也是单文件 JSON + 进程内缓存，用于给卡片角标兜底
+        // （STRM 在 Jellyfin 里没有 RunTimeTicks）。
+        services.AddSingleton<RuntimeDurationStore>();
+
         // 进度守卫的状态是「进程内的会话表」，必须单例，否则每次请求都拿到新表、armed 记不住。
         services.AddSingleton<ProgressGuard>();
 

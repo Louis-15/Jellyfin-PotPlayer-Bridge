@@ -16,7 +16,21 @@ namespace PotPlayerBridge.Core;
 public sealed class PlaybackMonitor : IAsyncDisposable
 {
     private const int SampleIntervalMs = 1000;
+
+    /// <summary>
+    /// 常规进度的上报间隔（写服务器）。
+    /// 保持 5 秒：续播精度、手机端看到的进度都靠它。
+    /// </summary>
     private const int PeriodicReportMs = 5000;
+
+    /// <summary>
+    /// 常规进度的「广播」间隔（让网页立刻刷新）。
+    /// 为什么需要单独一个更长的间隔：Jellyfin 只在保存理由不是 PlaybackProgress 时才广播
+    /// UserDataChanged，而广播会让所有已开的网页重绘卡片。每 5 秒广播一次太吵，
+    /// 每分钟一次既能让网页上的进度条/角标自己走起来，又不会刷屏。
+    /// </summary>
+    private const int PublishIntervalMs = 60_000;
+
     private const int SeekRetryLimit = 6;
     private const int NearEndMs = 10_000;
 
@@ -33,6 +47,9 @@ public sealed class PlaybackMonitor : IAsyncDisposable
     private bool _seekFinished;
     private int _seekAttempts;
     private long _lastReportAt;
+
+    /// <summary>上一次「广播型」上报的时间（新集开始、暂停、拖动、播完、停止、每分钟一次）。</summary>
+    private long _lastPublishAt;
     private PlaybackSignal _lastSignal;
 
     /// <summary>片尾跳转是否已经发过：同一集只跳一次，否则会在阈值附近反复触发。</summary>
@@ -212,6 +229,7 @@ public sealed class PlaybackMonitor : IAsyncDisposable
                     signal = signal with { EpisodeStart = true };
                     _state.NotifyEpisodeStartReported();
                     _lastSignal = signal;
+                    _lastPublishAt = Environment.TickCount64;
                 }
 
                 if (change == PlaybackChange.EpisodeChanged)
@@ -220,6 +238,7 @@ public sealed class PlaybackMonitor : IAsyncDisposable
                     // 片尾位置，若提前清掉，ApplyOutro 会用「上一集的位置 + 新一集的序号」
                     // 立刻再跳一次，把刚切过来的集又切走。
                     _outroSent = false;
+                    _lastPublishAt = Environment.TickCount64;
                     ReportEpisodeChange(previous, signal);
                 }
                 else if (change != PlaybackChange.None || episodeStart)
@@ -227,11 +246,19 @@ public sealed class PlaybackMonitor : IAsyncDisposable
                     // 暂停/恢复/拖动/播完/新集开始：立刻报一次，用户很快就能在别的设备上看到。
                     _sender.Enqueue(signal);
                     _lastReportAt = Environment.TickCount64;
+                    _lastPublishAt = Environment.TickCount64;
                 }
                 else if (ShouldReportPeriodically(signal))
                 {
-                    _sender.Enqueue(signal);
+                    // 常规进度每 5 秒写一次，但只每分钟广播一次：
+                    // 不广播网页就看不到变化；每 5 秒广播又会把所有网页刷得太频繁。
+                    var publish = Environment.TickCount64 - _lastPublishAt >= PublishIntervalMs;
+                    _sender.Enqueue(publish ? signal with { Publish = true } : signal);
                     _lastReportAt = Environment.TickCount64;
+                    if (publish)
+                    {
+                        _lastPublishAt = _lastReportAt;
+                    }
                 }
 
                 if (change == PlaybackChange.Ended && _state.Index >= _state.Count)

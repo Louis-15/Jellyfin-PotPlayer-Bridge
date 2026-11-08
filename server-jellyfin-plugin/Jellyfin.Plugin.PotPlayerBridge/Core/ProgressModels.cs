@@ -47,6 +47,13 @@ public sealed class ProgressRequest
     /// 否则网页上的进度条与卡片角标会一直停在上一集，直到用户暂停或关闭播放器才更新。
     /// </summary>
     public bool EpisodeStart { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether 要求服务器把这次保存广播出去。
+    /// 代理每分钟置一次，让网页上的进度条/角标自己走起来；
+    /// 中间每 5 秒的上报不带这个标记，仍按 PlaybackProgress 静默写入，避免刷屏。
+    /// </summary>
+    public bool Publish { get; set; }
 }
 
 /// <summary>进度写入的判定结果。<see cref="ProgressOutcome"/> 决定「写什么」，reason 只用于回给代理排查。</summary>

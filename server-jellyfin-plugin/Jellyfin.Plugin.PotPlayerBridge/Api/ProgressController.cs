@@ -22,22 +22,26 @@ public sealed class ProgressController : BridgeControllerBase
     private readonly ILibraryManager _library;
     private readonly IUserManager _users;
     private readonly IUserDataManager _userData;
+    private readonly RuntimeDurationStore _durations;
 
     /// <summary>Initializes a new instance of the <see cref="ProgressController"/> class.</summary>
     /// <param name="guard">进度守卫。</param>
     /// <param name="library">媒体库。</param>
     /// <param name="users">用户管理。</param>
     /// <param name="userData">用户数据。</param>
+    /// <param name="durations">实测时长记录（给卡片角标兜底）。</param>
     public ProgressController(
         ProgressGuard guard,
         ILibraryManager library,
         IUserManager users,
-        IUserDataManager userData)
+        IUserDataManager userData,
+        RuntimeDurationStore durations)
     {
         _guard = guard;
         _library = library;
         _users = users;
         _userData = userData;
+        _durations = durations;
     }
 
     /// <summary>
@@ -98,6 +102,11 @@ public sealed class ProgressController : BridgeControllerBase
             return ErrorResult(500, "写入播放进度失败：" + ex.Message, "save-failed");
         }
 
+        // 顺手记下「播放器实测到的时长」：STRM 条目在 Jellyfin 里没有 RunTimeTicks，
+        // 卡片角标需要这个数字才能显示「16:08 / 30:22」。
+        // 失败不影响进度本身（store 内部已吞掉异常），所以这里不等结果也不做错误处理。
+        await _durations.RecordAsync(itemId, request.DurationTicks).ConfigureAwait(false);
+
         return JsonPayload(new { accepted = true, reason = decision.Reason });
     }
 
@@ -136,9 +145,12 @@ public sealed class ProgressController : BridgeControllerBase
         //
         // EpisodeStart 为什么必须广播：自动连播到下一集时，新集的第一条进度如果走
         // PlaybackProgress，网页会一直显示上一集，要等暂停/停止才刷新（实测就是这个现象）。
+        //
+        // Publish 是代理每分钟发一次的常规刷新：数据仍每 5 秒写入，但只有这一条广播。
+        // 这样网页上的进度条与角标会自己走（一分钟一格），又不会每 5 秒把所有网页重绘一遍。
         var reason = request.Stopped
             ? UserDataSaveReason.PlaybackFinished
-            : request.IsPaused || request.Seeked || request.Ended || request.EpisodeStart
+            : request.IsPaused || request.Seeked || request.Ended || request.EpisodeStart || request.Publish
                 ? UserDataSaveReason.UpdateUserData
                 : UserDataSaveReason.PlaybackProgress;
 
