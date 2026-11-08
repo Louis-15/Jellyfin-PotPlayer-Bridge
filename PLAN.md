@@ -1032,7 +1032,33 @@ saveplaypos=0
 - **数据来源**：新增批量接口 `GET /PotPlayerBridge/ItemProgress?itemIds=a,b,c`，
   一次返回 `{ itemId, itemType, positionTicks, runtimeTicks, played }`。
   为什么不用卡片上的 `data-positionticks`：它只在「继续观看」卡片上有，且没有总时长与已看状态。
-- **更新时机**：页面渲染/路由切换时补算；收到 WebSocket `UserDataChanged` 时增量更新。
+- **时长从哪来（2026-11-08 实测结论）**：
+  Jellyfin 的 `RunTimeTicks` 是扫描媒体库时探测出来的。STRM 只是文本指针，
+  扫描器不会为了读时长去拉远端视频，所以这些条目时长一直是空，角标显示不出数字。
+  但**播放时** PotPlayer 能读到真实时长，代理一直在 `/Progress` 里报 `DurationTicks`。
+  处理方式分两层：
+  1. **写回数据库（主路径）**：`BaseItems` 表里就有 `RunTimeTicks` 列
+     （实测确认存在，且该季 E1-E3 有值、未探测到的为 NULL），
+     用 Jellyfin 官方入口 `ILibraryManager.UpdateItemAsync(item, parent, ItemUpdateType.MetadataEdit, ct)`
+     把实测时长写进去。
+     - 实测验证：播放 E5（原 `RunTimeTicks` 为 NULL）后，数据库变为 `15057260000`（25:05），
+       **删除兜底文件并重启 Jellyfin 后，`/ItemProgress` 与 Jellyfin 原生 `/Items` 仍返回该值**。
+     - 好处：不新增文件、不碰用户媒体目录、所有用户立刻受益，
+       且 Jellyfin 自己的排序/筛选/「已看时长统计」都能用上。
+     - 规则：Jellyfin 已有值就**绝不覆盖**（它可能是探测精度更高的值，或 nfo 里人工维护的）；
+       小于 60 秒不写（未加载完会报 0，片头/广告会报几秒的怪值）。
+       > 注：`BaseItem.RunTimeTicks` 标了 `[JsonIgnore]`，但那只影响 ItemValues 的 JSON 序列化，
+       > EF Core 在 `BaseItems` 表里有专门的列，所以 `UpdateItemAsync` 能持久化。
+       > 查库时若只拷贝 `jellyfin.db` 而不带 `-wal`，会看不到刚写入的值（数据还在 WAL 里）。
+  2. **本地兜底（`RuntimeDurationStore`）**：按 itemId 存一份 JSON 记录，
+     在 `RunTimeTicks` 仍为空时顶上去，覆盖「数据库写入失败」的情况。
+- **更新时机**：
+  - 页面渲染/路由切换时补算；收到 WebSocket `UserDataChanged` 时增量更新。
+  - 代理侧的上报分两类：
+    - **常规播放**：数据仍每 5 秒写入，但**每 60 秒才广播一次**（`Publish` 标记）。
+      不每 5 秒广播是因为广播会让所有已打开的网页重绘卡片，太吵。
+    - **用户能立刻感知的时刻**：暂停、恢复、拖动、播完、跳片尾、换集、关闭播放器，
+      一律带 `Publish` 立即广播，不用等下一个 60 秒。
 
 ### M7：交付文档与端到端（1 天）
 

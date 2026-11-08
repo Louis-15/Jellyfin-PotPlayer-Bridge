@@ -23,6 +23,7 @@ public sealed class ProgressController : BridgeControllerBase
     private readonly IUserManager _users;
     private readonly IUserDataManager _userData;
     private readonly RuntimeDurationStore _durations;
+    private readonly RuntimeDurationWriter _durationWriter;
 
     /// <summary>Initializes a new instance of the <see cref="ProgressController"/> class.</summary>
     /// <param name="guard">进度守卫。</param>
@@ -30,18 +31,21 @@ public sealed class ProgressController : BridgeControllerBase
     /// <param name="users">用户管理。</param>
     /// <param name="userData">用户数据。</param>
     /// <param name="durations">实测时长记录（给卡片角标兜底）。</param>
+    /// <param name="durationWriter">把实测时长写回数据库。</param>
     public ProgressController(
         ProgressGuard guard,
         ILibraryManager library,
         IUserManager users,
         IUserDataManager userData,
-        RuntimeDurationStore durations)
+        RuntimeDurationStore durations,
+        RuntimeDurationWriter durationWriter)
     {
         _guard = guard;
         _library = library;
         _users = users;
         _userData = userData;
         _durations = durations;
+        _durationWriter = durationWriter;
     }
 
     /// <summary>
@@ -104,8 +108,12 @@ public sealed class ProgressController : BridgeControllerBase
 
         // 顺手记下「播放器实测到的时长」：STRM 条目在 Jellyfin 里没有 RunTimeTicks，
         // 卡片角标需要这个数字才能显示「16:08 / 30:22」。
-        // 失败不影响进度本身（store 内部已吞掉异常），所以这里不等结果也不做错误处理。
+        // 两条路并行：
+        //  1. 写回 Jellyfin 数据库 —— 长期有效，所有用户和 Jellyfin 自己的排序筛选都受益；
+        //  2. 内存/JSON 兜底 —— 数据库写入要等 Jellyfin 刷新缓存，兜底能立刻生效。
+        // 失败都不影响进度本身（两个 store 内部已吞掉异常）。
         await _durations.RecordAsync(itemId, request.DurationTicks).ConfigureAwait(false);
+        await _durationWriter.TryWriteAsync(item, request.DurationTicks, cancellationToken).ConfigureAwait(false);
 
         return JsonPayload(new { accepted = true, reason = decision.Reason });
     }
@@ -153,7 +161,6 @@ public sealed class ProgressController : BridgeControllerBase
             : request.IsPaused || request.Seeked || request.Ended || request.EpisodeStart || request.Publish
                 ? UserDataSaveReason.UpdateUserData
                 : UserDataSaveReason.PlaybackProgress;
-
         // 用 Jellyfin 自己的保存通道，其他客户端（手机/VidHub）与「继续观看」才能立刻看到。
         // 注意：12.2.0 的 SaveUserData 是同步 void，不要 await。
         _userData.SaveUserData(user, item, data, reason, cancellationToken);

@@ -240,13 +240,14 @@ public sealed class PlaybackMonitor : IAsyncDisposable
                     _outroSent = false;
                     _lastPublishAt = Environment.TickCount64;
                     ReportEpisodeChange(previous, signal);
-                }
-                else if (change != PlaybackChange.None || episodeStart)
+                }                else if (change != PlaybackChange.None || episodeStart)
                 {
-                    // 暂停/恢复/拖动/播完/新集开始：立刻报一次，用户很快就能在别的设备上看到。
-                    _sender.Enqueue(signal);
+                    // 暂停 / 恢复 / 拖动 / 播完 / 新集开始：用户能立刻感知的时刻，必须马上广播，
+                    // 不能等每分钟的常规刷新。显式带 Publish，让「哪些时刻要立即刷新」写在代码里，
+                    // 而不是靠服务端从 IsPaused/Seeked/Ended 反推（那样以后改动容易漏掉）。
+                    _sender.Enqueue(signal with { Publish = true });
                     _lastReportAt = Environment.TickCount64;
-                    _lastPublishAt = Environment.TickCount64;
+                    _lastPublishAt = _lastReportAt;
                 }
                 else if (ShouldReportPeriodically(signal))
                 {
@@ -365,11 +366,13 @@ public sealed class PlaybackMonitor : IAsyncDisposable
             var ended = _outroSkipped ||
                         previous.Ended ||
                         (previous.DurationMs > 0 && previous.PositionMs >= previous.DurationMs - NearEndMs);
-            _sender.Enqueue(previous with { Stopped = true, IsPaused = false, Ended = ended });
+
+            // Publish：换集是用户能立刻感知的时刻，上一集的最终状态要马上广播出去。
+            _sender.Enqueue(previous with { Stopped = true, IsPaused = false, Ended = ended, Publish = true });
         }
 
         _outroSkipped = false;
-        _sender.Enqueue(signal);
+        _sender.Enqueue(signal with { Publish = true });
         _lastReportAt = Environment.TickCount64;
     }
 
@@ -389,7 +392,7 @@ public sealed class PlaybackMonitor : IAsyncDisposable
         // 用状态机重新生成一次快照，而不是复用 _lastSignal：
         // 关闭过程中最后几次采样的位置往往是 0，但 Snapshot(stopped:true) 会回退到
         // 「最后一次读到的正数位置」，这才是用户真正看到哪儿。
-        var finalSignal = _state.Snapshot(new PlaybackSample(string.Empty, 0, 0, -1), stopped: true);
+        var finalSignal = _state.Snapshot(new PlaybackSample(string.Empty, 0, 0, -1), stopped: true) with { Publish = true };
         await _sender.FlushAsync(finalSignal).ConfigureAwait(false);
     }
 
@@ -445,7 +448,8 @@ public sealed class PlaybackMonitor : IAsyncDisposable
 
         // 立刻按「已看完」上报，而不是等换集时按位置推断：
         // 片尾阈值有一两分钟，位置离结尾还远，按位置推断必然判成「未看完」。
-        _sender.Enqueue(_state.Snapshot(sample, stopped: false, ended: true));
+        // Publish：跳片尾是用户能立刻感知的时刻（画面切走了），必须马上广播。
+        _sender.Enqueue(_state.Snapshot(sample, stopped: false, ended: true) with { Publish = true });
         _lastReportAt = Environment.TickCount64;
 
         PotPlayerWindow.SendNext(_handle);

@@ -22,6 +22,10 @@ public sealed class PluginServiceRegistrator : IPluginServiceRegistrator
         // （STRM 在 Jellyfin 里没有 RunTimeTicks）。
         services.AddSingleton<RuntimeDurationStore>();
 
+        // 把实测时长写回 Jellyfin 数据库（BaseItems.RunTimeTicks），
+        // 让所有用户、Jellyfin 自己的排序与筛选都能用到这个数字。
+        services.AddSingleton<RuntimeDurationWriter>();
+
         // 进度守卫的状态是「进程内的会话表」，必须单例，否则每次请求都拿到新表、armed 记不住。
         services.AddSingleton<ProgressGuard>();
 
