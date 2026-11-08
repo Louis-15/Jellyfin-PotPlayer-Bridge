@@ -38,6 +38,21 @@ public sealed class PlaybackMonitor : IAsyncDisposable
     /// <summary>片尾跳转是否已经发过：同一集只跳一次，否则会在阈值附近反复触发。</summary>
     private bool _outroSent;
 
+    /// <summary>
+    /// 换集后是否还没等到「新集真的开始」。
+    /// 换集瞬间采样可能仍读到上一集的片尾位置（几千秒），若直接跳片头会把上一集拽回去，
+    /// 所以要先等位置落到片头之前，才允许跳。
+    /// </summary>
+    private bool _seekPendingForEpisode;
+
+    /// <summary>
+    /// 是否因为「片尾跳转」而主动结束了当前集。
+    /// 主动跳过片尾时播放器不会播到结尾，位置距结尾还有几十秒到两分钟；
+    /// 若不上报「已看完」，服务器上这一集永远停在 duration-outro，
+    /// 会一直挂在「继续观看」里（实测会攒出同一部剧的好几集）。
+    /// </summary>
+    private bool _outroSkipped;
+
     /// <summary>当前使用的窗口句柄（片尾跳转要用）。</summary>
     private IntPtr _handle;
 
@@ -177,18 +192,39 @@ public sealed class PlaybackMonitor : IAsyncDisposable
                     _lastPositiveSignal = signal;
                 }
 
-                ApplyResumeSeek(handle, sample);
+                if (change == PlaybackChange.EpisodeChanged)
+                {
+                    // 换集后重新允许跳片头：跳转状态必须清掉，否则新的一集不会再跳。
+                    _seekFinished = false;
+                    _seekAttempts = 0;
+                    _seekPendingForEpisode = true;
+                }
+
+                ApplyStartSeek(handle, sample);
                 ApplyOutro(sample);
+
+                // 这一集刚确认真的在播（armed 由 false 变 true）：立刻报一条并标记 EpisodeStart，
+                // 让服务器用会广播的保存理由，网页马上就能看到新一集的进度。
+                // 不做这一步，自动连播过来的新集要等下一次暂停/停止才在网页上出现。
+                var episodeStart = signal.Armed && !_state.EpisodeStartReported;
+                if (episodeStart)
+                {
+                    signal = signal with { EpisodeStart = true };
+                    _state.NotifyEpisodeStartReported();
+                    _lastSignal = signal;
+                }
 
                 if (change == PlaybackChange.EpisodeChanged)
                 {
-                    // 换集后重置片尾标记，否则下一集的片尾不会触发。
+                    // 片尾标记必须在 ApplyOutro 之后清：换集这一刻的采样还是上一集的
+                    // 片尾位置，若提前清掉，ApplyOutro 会用「上一集的位置 + 新一集的序号」
+                    // 立刻再跳一次，把刚切过来的集又切走。
                     _outroSent = false;
                     ReportEpisodeChange(previous, signal);
                 }
-                else if (change != PlaybackChange.None)
+                else if (change != PlaybackChange.None || episodeStart)
                 {
-                    // 暂停/恢复/拖动/播完：立刻报一次，用户很快就能在别的设备上看到。
+                    // 暂停/恢复/拖动/播完/新集开始：立刻报一次，用户很快就能在别的设备上看到。
                     _sender.Enqueue(signal);
                     _lastReportAt = Environment.TickCount64;
                 }
@@ -217,21 +253,41 @@ public sealed class PlaybackMonitor : IAsyncDisposable
     }
 
     /// <summary>
-    /// 续播跳转：媒体就绪后把位置设到服务器算好的起播点。
+    /// 起播跳转：媒体就绪后把位置设到该集的期望起点。
+    /// <list type="bullet">
+    /// <item>起播集：服务器算好的位置（续播点或片头）；</item>
+    /// <item>之后连播/手动切来的集：该季配置的片头秒数。</item>
+    /// </list>
+    /// <para>
     /// STRM 首次加载可能几秒才出画面，所以按「位置还停在开头」重试几次而不是一次了事。
+    /// </para>
     /// </summary>
-    private void ApplyResumeSeek(IntPtr handle, PlaybackSample sample)
+    private void ApplyStartSeek(IntPtr handle, PlaybackSample sample)
     {
-        if (_seekFinished || StartPositionMs <= 0 || !sample.IsPlaying || sample.PositionMs <= 0)
+        var targetMs = _state.ExpectedStartMs(_state.Index);
+        if (_seekFinished || targetMs <= 0 || !sample.IsPlaying || sample.PositionMs <= 0)
         {
             return;
         }
 
-        var delta = Math.Abs(sample.PositionMs - StartPositionMs);
+        var delta = Math.Abs(sample.PositionMs - targetMs);
         if (delta <= PlaybackProgressState.ArmedPositionToleranceMs)
         {
             _seekFinished = true;
+            _seekPendingForEpisode = false;
             return;
+        }
+
+        if (_seekPendingForEpisode)
+        {
+            // 换集刚发生，位置还可能停在上一集的片尾（几千秒）。
+            // 这时跳片头会把上一集拽回去，所以等到位置落到片头之前再动手。
+            if (sample.PositionMs > targetMs + PlaybackProgressState.ArmedPositionToleranceMs)
+            {
+                return;
+            }
+
+            _seekPendingForEpisode = false;
         }
 
         if (_seekAttempts >= SeekRetryLimit)
@@ -239,13 +295,13 @@ public sealed class PlaybackMonitor : IAsyncDisposable
             // 跳不过去就放弃：状态机不会 armed，这条集不会写坏服务器进度（A4）。
             _seekFinished = true;
             _log.Warn(
-                "续播跳转多次未生效（期望 " + FormatMs(StartPositionMs) +
+                "跳转多次未生效（期望 " + FormatMs(targetMs) +
                 "，实际 " + FormatMs(sample.PositionMs) + "），本次不写进度。");
             return;
         }
 
         // 用户可能在跳转生效前就自己拖了位置：已经接近就别再强行拉回去。
-        if (_seekAttempts > 0 && sample.PositionMs > StartPositionMs + PlaybackProgressState.ArmedPositionToleranceMs)
+        if (_seekAttempts > 0 && sample.PositionMs > targetMs + PlaybackProgressState.ArmedPositionToleranceMs)
         {
             _seekFinished = true;
             return;
@@ -253,12 +309,12 @@ public sealed class PlaybackMonitor : IAsyncDisposable
 
         _seekAttempts++;
         _log.Info(
-            "续播跳转到 " + FormatMs(StartPositionMs) +
+            (_state.Index == _state.StartIndex ? "续播跳转到 " : "片头跳转到 ") + FormatMs(targetMs) +
             "（第 " + _seekAttempts + " 次，当前 " + FormatMs(sample.PositionMs) + "）");
-        PotPlayerWindow.SetCurrentTimeMs(handle, StartPositionMs);
+        PotPlayerWindow.SetCurrentTimeMs(handle, targetMs);
 
         // 同步状态机里的「上一位置」，否则下一采样会把这个跳变当成用户拖动。
-        _state.NotifySeekApplied(StartPositionMs);
+        _state.NotifySeekApplied(targetMs);
     }
 
     private void ReportEpisodeChange(PlaybackSignal previous, PlaybackSignal signal)
@@ -272,15 +328,20 @@ public sealed class PlaybackMonitor : IAsyncDisposable
             previous = _lastPositiveSignal;
         }
 
-        // 上一集：接近结尾就标成已看完，否则记成「停下来时看到哪」。
+        // 上一集：主动跳过片尾或接近结尾就标成已看完，否则记成「停下来时看到哪」。
         if (!string.IsNullOrEmpty(previous.ItemId) &&
             !string.Equals(previous.ItemId, signal.ItemId, StringComparison.OrdinalIgnoreCase))
         {
-            var ended = previous.Ended ||
+            // _outroSkipped：片尾跳转过的集必须留在「已看完」，
+            // 否则下面这句会按位置把它改回「未看完」，用户就会在「继续观看」里
+            // 看到同一部剧的好几集堆在一起。
+            var ended = _outroSkipped ||
+                        previous.Ended ||
                         (previous.DurationMs > 0 && previous.PositionMs >= previous.DurationMs - NearEndMs);
             _sender.Enqueue(previous with { Stopped = true, IsPaused = false, Ended = ended });
         }
 
+        _outroSkipped = false;
         _sender.Enqueue(signal);
         _lastReportAt = Environment.TickCount64;
     }
@@ -318,6 +379,13 @@ public sealed class PlaybackMonitor : IAsyncDisposable
             return;
         }
 
+        // 换集刚发生、位置还停在上一集时不做判断：
+        // 否则会用「上一集的位置 + 新一集的序号」立刻再跳一次，把刚切过来的集又切走。
+        if (_seekPendingForEpisode)
+        {
+            return;
+        }
+
         // 未配置片尾的季什么都不做（D5）。
         if (_plan.OutroSeconds <= 0 || _outroSent)
         {
@@ -343,9 +411,15 @@ public sealed class PlaybackMonitor : IAsyncDisposable
         }
 
         _outroSent = true;
+        _outroSkipped = true;
         _log.Info(
             "到达片尾（" + FormatMs(sample.PositionMs) + " / " + FormatMs(durationMs) +
-            "，片尾 " + _plan.OutroSeconds + " 秒），跳到下一集。");
+            "，片尾 " + _plan.OutroSeconds + " 秒），标记已看完并跳到下一集。");
+
+        // 立刻按「已看完」上报，而不是等换集时按位置推断：
+        // 片尾阈值有一两分钟，位置离结尾还远，按位置推断必然判成「未看完」。
+        _sender.Enqueue(_state.Snapshot(sample, stopped: false, ended: true));
+        _lastReportAt = Environment.TickCount64;
 
         PotPlayerWindow.SendNext(_handle);
     }

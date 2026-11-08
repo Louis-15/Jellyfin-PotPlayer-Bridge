@@ -82,7 +82,8 @@ internal sealed class ProgressSender : IAsyncDisposable
             Stopped = signal.Stopped,
             Armed = signal.Armed,
             Seeked = signal.Seeked,
-            Ended = signal.Ended
+            Ended = signal.Ended,
+            EpisodeStart = signal.EpisodeStart
         };
 
         if (!_queue.Writer.TryWrite(report))

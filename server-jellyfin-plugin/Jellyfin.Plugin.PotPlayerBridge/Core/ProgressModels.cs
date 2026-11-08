@@ -39,6 +39,14 @@ public sealed class ProgressRequest
     /// 只靠「位置接近时长」判断不出来，会被当成「用户把进度拖回开头」而写入 0。
     /// </summary>
     public bool Ended { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether 这是「这一集刚开始播」的第一条上报。
+    /// 自动连播到下一集、或从网页点开一集时，代理会把它置为 true。
+    /// 服务器据此改用会广播 UserDataChanged 的保存理由：
+    /// 否则网页上的进度条与卡片角标会一直停在上一集，直到用户暂停或关闭播放器才更新。
+    /// </summary>
+    public bool EpisodeStart { get; set; }
 }
 
 /// <summary>进度写入的判定结果。<see cref="ProgressOutcome"/> 决定「写什么」，reason 只用于回给代理排查。</summary>

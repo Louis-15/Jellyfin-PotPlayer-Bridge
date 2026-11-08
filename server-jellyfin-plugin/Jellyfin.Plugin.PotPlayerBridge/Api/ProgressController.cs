@@ -132,10 +132,13 @@ public sealed class ProgressController : BridgeControllerBase
         // 不广播 UserDataChanged。实测（2026-11-07）用 PlaybackProgress 保存后，网页 WebSocket
         // 一个事件都收不到，进度条要等半分钟才变；而手机端是自己主动拉取，所以看起来「手机快、网页慢」。
         // 处理办法：常规进度仍然用 PlaybackProgress（避免每 5 秒把网页刷一次），
-        // 但「用户能感知的时刻」（暂停、拖动、播完、停止）改用会广播的 reason，网页立即更新。
+        // 但「用户能感知的时刻」（暂停、拖动、播完、停止、新一集开始）改用会广播的 reason。
+        //
+        // EpisodeStart 为什么必须广播：自动连播到下一集时，新集的第一条进度如果走
+        // PlaybackProgress，网页会一直显示上一集，要等暂停/停止才刷新（实测就是这个现象）。
         var reason = request.Stopped
             ? UserDataSaveReason.PlaybackFinished
-            : request.IsPaused || request.Seeked || request.Ended
+            : request.IsPaused || request.Seeked || request.Ended || request.EpisodeStart
                 ? UserDataSaveReason.UpdateUserData
                 : UserDataSaveReason.PlaybackProgress;
 

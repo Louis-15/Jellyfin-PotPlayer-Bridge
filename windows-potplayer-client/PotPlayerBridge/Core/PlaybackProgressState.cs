@@ -49,6 +49,11 @@ public enum PlaybackChange
 /// <param name="Stopped">是否是停止/关闭时的最后一次上报。</param>
 /// <param name="Seeked">是否是用户拖动产生的上报。</param>
 /// <param name="Ended">是否已播完这一集。</param>
+/// <param name="EpisodeStart">
+/// 是否是「这一集刚开始播」的第一条上报（含自动连播过来的新集）。
+/// 服务器据此改用会广播 UserDataChanged 的保存理由，让网页立即显示新一集的进度，
+/// 而不是等下一次暂停/停止才刷新。
+/// </param>
 public readonly record struct PlaybackSignal(
     string ItemId,
     int Index,
@@ -58,7 +63,8 @@ public readonly record struct PlaybackSignal(
     bool IsPaused,
     bool Stopped,
     bool Seeked,
-    bool Ended);
+    bool Ended,
+    bool EpisodeStart = false);
 
 /// <summary>
 /// 代理侧的播放进度状态机（PLAN 5.7）。纯逻辑、不碰窗口消息，所以能单测。
@@ -89,6 +95,7 @@ public sealed class PlaybackProgressState
     private readonly PlaybackPlan _plan;
     private readonly int _startIndex;
     private readonly long _startPositionMs;
+    private readonly long _introMs;
     private readonly bool _singleItemMode;
 
     private int _index;
@@ -125,6 +132,7 @@ public sealed class PlaybackProgressState
         _startIndex = Math.Clamp(plan.StartIndex, 1, plan.Playlist.Count);
         _index = _startIndex;
         _startPositionMs = Math.Max(0, plan.StartPositionTicks / TimeSpan.TicksPerMillisecond);
+        _introMs = Math.Max(0, plan.IntroSeconds) * 1000L;
     }
 
     /// <summary>Gets 当前列表序号（1 开始）。</summary>
@@ -145,6 +153,18 @@ public sealed class PlaybackProgressState
     /// <summary>Gets 列表总数。</summary>
     public int Count => _plan.Playlist.Count;
 
+    /// <summary>Gets a value indicating whether 这一集已经上报过「开始播放」的第一条进度。</summary>
+    public bool EpisodeStartReported { get; private set; }
+
+    /// <summary>
+    /// 标记「这一集的第一条进度已经发出去了」。
+    /// 由监控循环在 armed 后调用一次，避免每 5 秒都把网页刷新一遍。
+    /// </summary>
+    public void NotifyEpisodeStartReported()
+    {
+        EpisodeStartReported = true;
+    }
+
     /// <summary>
     /// 告知状态机「刚才我们自己把播放位置跳到了这个位置」。
     /// 不这么做的话，续播跳转造成的 0 → 20:00 会被识别成「用户拖动」：
@@ -156,10 +176,21 @@ public sealed class PlaybackProgressState
         _lastPositionMs = Math.Max(0, positionMs);
     }
 
-    /// <summary>取某一项的期望起播位置：只有起播集有偏移，其余集都从 0 开始。</summary>
+    /// <summary>取某一项的期望起播位置。</summary>
     /// <param name="index">1 开始的序号。</param>
     /// <returns>毫秒。</returns>
-    public long ExpectedStartMs(int index) => index == _startIndex ? _startPositionMs : 0;
+    public long ExpectedStartMs(int index)
+    {
+        // 起播集用服务器算好的位置（= max(续播点, 片头秒数)，见 PlaybackPlanner）。
+        if (index == _startIndex)
+        {
+            return _startPositionMs;
+        }
+
+        // 之后由自动连播或手动切集换来的新集，从该季配置的片头秒数开始。
+        // 以前这里返回 0，导致「点网页播放按钮的那一集跳片头、连播的下一集不跳」。
+        return _introMs;
+    }
 
     /// <summary>喂一个采样，返回需要立即上报的变化，并给出当前完整状态。</summary>
     /// <param name="sample">采样。</param>
@@ -180,6 +211,10 @@ public sealed class PlaybackProgressState
             _lastPositionMs = 0;
             _lastDurationMs = 0;
             _lastPositivePositionMs = 0;
+
+            // 换集后新的一集还没上报过「开始播放」，要再触发一次广播，
+            // 否则网页上的进度/角标会一直停在上一集，直到用户暂停或关闭播放器。
+            EpisodeStartReported = false;
         }
 
         var expectedMs = ExpectedStartMs(_index);
@@ -301,7 +336,8 @@ public sealed class PlaybackProgressState
             IsPaused: !stopped && sample.IsPaused,
             Stopped: stopped,
             Seeked: seeked,
-            Ended: ended);
+            Ended: ended,
+            EpisodeStart: false);
     }
 
     /// <summary>

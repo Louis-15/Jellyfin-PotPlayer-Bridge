@@ -286,4 +286,52 @@ public class PlaybackProgressStateTests
         Assert.Equal("item-1", signal.ItemId);
         Assert.True(signal.Armed);
     }
+
+    [Fact]
+    public void Later_Episodes_Start_At_Intro_Seconds()
+    {
+        // 用户点的第 2 集从续播点 20:00 开始；自动连播到第 3 集时应从片头 120 秒开始，
+        // 否则会出现「点网页播放的那一集跳片头、连播的下一集不跳」。
+        var plan = Plan(Start1200s * TimeSpan.TicksPerMillisecond);
+        plan.IntroSeconds = 120;
+
+        var state = new PlaybackProgressState(plan);
+
+        Assert.Equal(Start1200s, state.ExpectedStartMs(2));
+        Assert.Equal(120_000, state.ExpectedStartMs(1));
+        Assert.Equal(120_000, state.ExpectedStartMs(3));
+    }
+
+    [Fact]
+    public void Later_Episodes_Start_At_Zero_When_Intro_Not_Configured()
+    {
+        // 未配置片头的季：连播的下一集仍从 0 开始，不能凭空跳（D5）。
+        var plan = Plan(0, startIndex: 1);
+        plan.IntroSeconds = 0;
+
+        var state = new PlaybackProgressState(plan);
+
+        Assert.Equal(0, state.ExpectedStartMs(2));
+        Assert.Equal(0, state.ExpectedStartMs(3));
+    }
+
+    [Fact]
+    public void Episode_Start_Flag_Resets_On_Episode_Change()
+    {
+        // 「新一集开始」这条广播每条集只能发一次，否则每 5 秒都会刷网页。
+        // 换集之后必须重新允许发一次，否则自动连播过来的新集不会广播，
+        // 网页上会一直显示上一集的进度（实测问题）。
+        var plan = Plan(0, startIndex: 1);
+        var state = new PlaybackProgressState(plan);
+
+        state.Feed(Sample(1, 200), out _);
+        Assert.False(state.EpisodeStartReported);
+
+        state.NotifyEpisodeStartReported();
+        Assert.True(state.EpisodeStartReported);
+
+        state.Feed(Sample(2, 200), out var signal);
+        Assert.Equal(2, signal.Index);
+        Assert.False(state.EpisodeStartReported);
+    }
 }

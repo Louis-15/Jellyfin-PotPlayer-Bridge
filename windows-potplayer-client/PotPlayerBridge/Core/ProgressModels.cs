@@ -29,6 +29,12 @@ public sealed class ProgressReport
 
     /// <summary>Gets or sets a value indicating whether 这一集已经播完。</summary>
     public bool Ended { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether 这是「这一集刚开始播」的第一条上报。
+    /// 服务器据此改用会广播 UserDataChanged 的保存理由，让网页立刻显示新一集的进度。
+    /// </summary>
+    public bool EpisodeStart { get; set; }
 }
 
 /// <summary>服务器的进度写入结果。</summary>
