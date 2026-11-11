@@ -6,8 +6,8 @@ namespace PotPlayerBridge.Core;
 /// </summary>
 public sealed class AgentConfig
 {
-    /// <summary>Jellyfin 服务器地址。默认取本项目联调环境，用户可在设置里改。</summary>
-    public string ServerUrl { get; set; } = "https://931002.xyz:8443";
+    /// <summary>Jellyfin 服务器地址。默认留空，由用户在设置页填写。</summary>
+    public string ServerUrl { get; set; } = string.Empty;
 
     /// <summary>用户确认/自动发现的 PotPlayer 可执行文件路径。</summary>
     public string? PotPlayerPath { get; set; }

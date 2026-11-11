@@ -126,7 +126,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
    也可以直接用 HTTP 验证（Token 从网页控制台 `ApiClient.accessToken()` 取，不要写进任何文件）：
 
    ```powershell
-   $body = '{"serverUrl":"https://931002.xyz:8443","accessToken":"<token>","itemId":"<episodeId>","intent":"item"}'
+   $body = '{"serverUrl":"https://your-server:8443","accessToken":"<token>","itemId":"<episodeId>","intent":"item"}'
    curl.exe -X POST http://127.0.0.1:18927/api/play `
      -H "X-PPB-Client: 1" -H "Content-Type: application/json" -d $body
    ```
@@ -181,7 +181,7 @@ STRM 首次加载慢时重试最多 6 次。
 - 假续播（服务器说从 20:00 续播、播放器却从头开始）**永远不会 armed**，因此不会把 20:00 写成几分钟。
 - 服务器侧还有第二道防线：未 armed 的上报只能往上抬，不能倒退、不能清零。
 
-设计细节见 [PLAN.md](../PLAN.md) 5.7 / 6.6 / 6.9。
+设计细节见本地开发文档（不随仓库发布）。
 
 ## 配置
 
@@ -189,7 +189,7 @@ STRM 首次加载慢时重试最多 6 次。
 
 ```json
 {
-  "serverUrl": "https://931002.xyz:8443",
+  "serverUrl": "https://your-server:8443",
   "potPlayerPath": "D:\\Program Files\\PotPlayer\\PotPlayerMini64.exe",
   "port": 18927,
   "extraAllowedOrigins": []
@@ -198,7 +198,7 @@ STRM 首次加载慢时重试最多 6 次。
 
 | 字段 | 说明 |
 | --- | --- |
-| `serverUrl` | Jellyfin 地址，用于推导允许的网页来源；默认值与联调环境一致 |
+| `serverUrl` | Jellyfin 地址，用于推导允许的网页来源；默认留空，首次使用需在设置页填写 |
 | `potPlayerPath` | 可执行文件路径；留空则每次启动自动发现 |
 | `port` | 本机端口，固定 18927（注入脚本里写死了这个地址） |
 | `extraAllowedOrigins` | 额外放行的网页来源，一般不需要 |

@@ -62,7 +62,7 @@ server-jellyfin-plugin/
 | Jellyfin | `12.2.0`（`targetAbi = 12.2.0.0`），Docker 或裸机均可 |
 | 前端框架 | `net10.0`，服务器需带 .NET 10 运行时 |
 | 构建机 | .NET 10 SDK（`dotnet --version` 能输出 10.x） |
-| 权限 | 能写入 Jellyfin 的插件目录（Docker 通常在宿主机 `/www/jellyfin/config/plugins/`） |
+| 权限 | 能写入 Jellyfin 的插件目录（Docker 通常在宿主机的配置目录下，例如 `<配置目录>/plugins/`） |
 
 > 服务器插件与本机 Windows 程序**没有代码依赖**，可以分别构建、分别安装。
 
@@ -119,23 +119,23 @@ MD5 自动更新。
 > 服务器访问不了 GitHub 时使用这种方式。**先备份插件目录**。重启 Jellyfin 会造成几十秒不可用，请在没人看片的时候操作。
 
 ```powershell
-# 1. 备份（在服务器上执行）
-ssh -p 2222 root@931002.xyz "tar czf /root/jellyfin-plugins-backup-$(date +%Y%m%d-%H%M%S).tgz -C /www/jellyfin/config plugins && ls -lh /root/jellyfin-plugins-backup-*.tgz | tail -1"
+# 1. 备份（在服务器上执行；把 <...> 换成你自己的值）
+ssh -p <SSH端口> <用户名>@<服务器地址> "tar czf ~/jellyfin-plugins-backup-$(date +%Y%m%d-%H%M%S).tgz -C <配置目录> plugins && ls -lh ~/jellyfin-plugins-backup-*.tgz | tail -1"
 
 # 2. 上传压缩包
-scp -P 2222 "artifacts\PotPlayerBridge-Plugin-1.0.0.0.zip" root@931002.xyz:/tmp/
+scp -P <SSH端口> "artifacts\PotPlayerBridge-Plugin-1.0.0.0.zip" <用户名>@<服务器地址>:/tmp/
 
 # 3. 解压到插件目录（目录名随意，Jellyfin 以 meta.json 为准；这里用可读的名字）
-ssh -p 2222 root@931002.xyz "mkdir -p '/www/jellyfin/config/plugins/PotPlayer Bridge_1.0.0.0' && unzip -o /tmp/PotPlayerBridge-Plugin-1.0.0.0.zip -d '/www/jellyfin/config/plugins/PotPlayer Bridge_1.0.0.0'"
+ssh -p <SSH端口> <用户名>@<服务器地址> "mkdir -p '<配置目录>/plugins/PotPlayer Bridge_1.0.0.0' && unzip -o /tmp/PotPlayerBridge-Plugin-1.0.0.0.zip -d '<配置目录>/plugins/PotPlayer Bridge_1.0.0.0'"
 
 # 4. 重启
-ssh -p 2222 root@931002.xyz "docker restart jellyfin"
+ssh -p <SSH端口> <用户名>@<服务器地址> "docker restart jellyfin"
 ```
 
 重启后 Jellyfin 需要几十秒才能恢复，等容器状态变成 `healthy` 再验证：
 
 ```powershell
-ssh -p 2222 root@931002.xyz "docker ps --filter name=jellyfin --format '{{.Status}}'"
+ssh -p <SSH端口> <用户名>@<服务器地址> "docker ps --filter name=jellyfin --format '{{.Status}}'"
 ```
 
 ## 确认装好了（四步）
@@ -144,21 +144,21 @@ ssh -p 2222 root@931002.xyz "docker ps --filter name=jellyfin --format '{{.Statu
 2. **脚本接口可访问**：
 
    ```powershell
-   curl.exe -sk https://931002.xyz:8443/PotPlayerBridge/Version
+   curl.exe -sk https://<服务器地址>/PotPlayerBridge/Version
    # 期望：{"name":"PotPlayer Bridge","version":"1.0.0.0","targetAbi":"12.2.0.0"}
 
-   curl.exe -sk https://931002.xyz:8443/PotPlayerBridge/Client.js
+   curl.exe -sk https://<服务器地址>/PotPlayerBridge/Client.js
    # 期望：一段 JavaScript，第一行是注释，内容是替换过配置的 clientScript.js
    ```
 
 3. **index.html 里出现注入标记**：
 
    ```powershell
-   curl.exe -sk https://931002.xyz:8443/web/index.html | Select-String 'potplayer-bridge-client'
+   curl.exe -sk https://<服务器地址>/web/index.html | Select-String 'potplayer-bridge-client'
    # 期望：<!--potplayer-bridge-client--><script src="/PotPlayerBridge/Client.js" defer></script>
    ```
 
-4. **浏览器控制台打印版本**：打开 `https://931002.xyz:8443/web/`，按 `F12` 打开控制台，
+4. **浏览器控制台打印版本**：打开 `https://<服务器地址>/web/`，按 `F12` 打开控制台，
    应看到 `[PotPlayerBridge] 客户端脚本已加载，版本 1.0.0.0`。
    登录后还会再打印一条 `已连接到 Jellyfin Web（ApiClient 就绪）`。
 5. **季配置面板出现**：打开任意**季详情页**或**单集详情页**，标题/播放按钮区域下方应出现
@@ -212,7 +212,7 @@ ssh -p 2222 root@931002.xyz "docker ps --filter name=jellyfin --format '{{.Statu
 ## 卸载
 
 ```powershell
-ssh -p 2222 root@931002.xyz "rm -rf '/www/jellyfin/config/plugins/PotPlayer Bridge_1.0.0.0' && docker restart jellyfin"
+ssh -p <SSH端口> <用户名>@<服务器地址> "rm -rf '<配置目录>/plugins/PotPlayer Bridge_1.0.0.0' && docker restart jellyfin"
 ```
 
 卸载后网页立刻回到 Jellyfin 原生行为，不需要改任何其他配置。
@@ -291,8 +291,8 @@ ssh -p 2222 root@931002.xyz "rm -rf '/www/jellyfin/config/plugins/PotPlayer Brid
 
 | 现象 | 先看哪里 |
 | --- | --- |
-| 插件列表里没有 PotPlayer Bridge | `ssh -p 2222 root@931002.xyz "docker logs --tail 200 jellyfin"` 里是否有插件加载异常；目录里是否只放了 dll（不要放 Jellyfin 的程序集） |
-| 接口 404 | 容器里是否存在 `/config/plugins/PotPlayer Bridge_1.0.0.0/Jellyfin.Plugin.PotPlayerBridge.dll` 与 `meta.json` |
+| 插件列表里没有 PotPlayer Bridge | `ssh -p <SSH端口> <用户名>@<服务器地址> "docker logs --tail 200 jellyfin"` 里是否有插件加载异常；目录里是否只放了 dll（不要放 Jellyfin 的程序集） |
+| 接口 404 | 容器里是否存在 `<配置目录>/plugins/PotPlayer Bridge_1.0.0.0/Jellyfin.Plugin.PotPlayerBridge.dll` 与 `meta.json` |
 | `index.html` 里没有注入标记 | 配置里 `EnableClientInjection` 是否被改成 `false`；反向代理是否缓存了旧页面 |
 | 控制台没有输出但接口正常 | 浏览器缓存了旧 `index.html`，强制刷新（`Ctrl+F5`） |
 | 季/集详情页没有配置面板 | 控制台看有没有 `季配置面板已就绪`；`/PotPlayerBridge/SeasonPanel.js` 是否 200；`ItemInfo` 是否 200（401 说明登录态失效） |

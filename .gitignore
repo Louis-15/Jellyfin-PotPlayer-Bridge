@@ -24,3 +24,7 @@ season-settings.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# 本地开发文档：只在本地保留，不随仓库发布
+/PLAN.md
+/REQUIREMENTS.md

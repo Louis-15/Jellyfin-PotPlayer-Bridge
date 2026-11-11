@@ -3,7 +3,7 @@ namespace PotPlayerBridge.Core;
 /// <summary>POST /api/play 的请求体（由注入脚本发来）。</summary>
 public sealed class PlayRequest
 {
-    /// <summary>Gets or sets Jellyfin 服务器地址，例如 https://931002.xyz:8443。</summary>
+    /// <summary>Gets or sets Jellyfin 服务器地址，例如 https://your-server:8443。</summary>
     public string? ServerUrl { get; set; }
 
     /// <summary>Gets or sets 当前用户的访问令牌。只在本机内存里用于调用服务器，绝不落盘/写日志。</summary>

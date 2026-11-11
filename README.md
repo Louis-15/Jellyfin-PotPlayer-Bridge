@@ -412,7 +412,7 @@ Get-Process PotPlayerBridge
 - **电影 / 单片视频**：自动挂载外挂中文字幕（单集模式）
 - **剧集**：走整季播放列表，不自动挂字幕
 
-原因：实测 PotPlayer **只有直接播放视频地址时**才接受 `/sub=` 字幕参数；一旦用播放列表（`.dpl`）启动，字幕参数会被丢弃，而 DPL 格式本身没有字幕字段。（详细实测矩阵见 [PLAN.md](PLAN.md) 第 6.8 节）
+原因：实测 PotPlayer **只有直接播放视频地址时**才接受 `/sub=` 字幕参数；一旦用播放列表（`.dpl`）启动，字幕参数会被丢弃，而 DPL 格式本身没有字幕字段。
 
 所以剧集建议用**内嵌字幕**的片源。
 
@@ -532,10 +532,10 @@ dotnet test            # 18 个用例
 
 | 文档 | 内容 |
 | --- | --- |
-| [PLAN.md](PLAN.md) | 完整实施计划、所有实测结论、踩坑记录 |
-| [REQUIREMENTS.md](REQUIREMENTS.md) | 需求与验收项 |
 | [server-jellyfin-plugin/README.md](server-jellyfin-plugin/README.md) | 服务器插件开发文档 |
 | [windows-potplayer-client/README.md](windows-potplayer-client/README.md) | 本地代理开发文档 |
+
+> 实施计划与需求验收项属于本地开发文档，不随仓库发布。
 
 ---
 

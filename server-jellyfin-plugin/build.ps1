@@ -80,13 +80,13 @@ if (Test-Path $zipPath) {
 Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
 
 $hash = (Get-FileHash $zipPath -Algorithm MD5).Hash.ToLowerInvariant()
-$remoteDir = "/www/jellyfin/config/plugins/PotPlayer Bridge_$version"
+$remoteDir = "<配置目录>/plugins/PotPlayer Bridge_$version"
 
 Write-Host ''
 Write-Host "插件目录:   $packageDir"
 Write-Host "插件压缩包: $zipPath"
 Write-Host "MD5:        $hash"
 Write-Host ''
-Write-Host '安装到服务器（先备份插件目录）：'
-Write-Host "  scp -P 2222 `"$zipPath`" root@931002.xyz:/tmp/"
-Write-Host "  ssh -p 2222 root@931002.xyz `"mkdir -p '$remoteDir' && unzip -o '/tmp/PotPlayerBridge-Plugin-$version.zip' -d '$remoteDir' && docker restart jellyfin`""
+Write-Host '安装到服务器（先备份插件目录；把 <...> 换成你自己的值）：'
+Write-Host "  scp -P <SSH端口> `"$zipPath`" <用户名>@<服务器地址>:/tmp/"
+Write-Host "  ssh -p <SSH端口> <用户名>@<服务器地址> `"mkdir -p '$remoteDir' && unzip -o '/tmp/PotPlayerBridge-Plugin-$version.zip' -d '$remoteDir' && docker restart jellyfin`""
