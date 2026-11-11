@@ -63,7 +63,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "编译失败（exit $LASTEXITCODE）"
 }
 
-$buildOutput = Join-Path $projectDir "bin\$Configuration\net10.0"
+$buildOutput = Join-Path $projectDir "bin/$Configuration/net10.0"
 
 if (Test-Path $packageDir) {
     Remove-Item $packageDir -Recurse -Force

@@ -56,7 +56,7 @@ $ErrorActionPreference = 'Stop'
 
 $scriptRoot = $PSScriptRoot
 $pluginRoot = [System.IO.Path]::GetFullPath((Join-Path $scriptRoot '..'))
-$metaPath = Join-Path $pluginRoot 'Jellyfin.Plugin.PotPlayerBridge\meta.json'
+$metaPath = Join-Path (Join-Path $pluginRoot 'Jellyfin.Plugin.PotPlayerBridge') 'meta.json'
 $manifestPath = Join-Path $pluginRoot 'manifest.json'
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 
