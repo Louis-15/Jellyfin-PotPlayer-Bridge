@@ -7,9 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Jellyfin.Plugin.PotPlayerBridge</RootNamespace>
     <AssemblyName>Jellyfin.Plugin.PotPlayerBridge</AssemblyName>
-    <Version>1.0.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.0.1</Version>
+    <AssemblyVersion>1.0.0.1</AssemblyVersion>
+    <FileVersion>1.0.0.1</FileVersion>
     <Company>Jellyfin-PotPlayer-Bridge</Company>
     <Authors>Jellyfin-PotPlayer-Bridge</Authors>
     <Description>把 jellyfin-web 的播放按钮接到本机 PotPlayer：解析播放意图、生成播放计划、守卫进度回写。</Description>
