@@ -1,21 +1,29 @@
 [
-    {
-        "guid":  "f70de2ad-8dc4-4efd-9daf-73c9657ae62f",
-        "name":  "PotPlayer Bridge",
-        "description":  "服务器侧插件：向 jellyfin-web 注入客户端脚本，解析 Series/Season/Episode/Movie 的播放意图，生成整季播放计划，按季保存片头片尾配置，并在回写播放进度时拒绝会倒退的写入。真正启动 PotPlayer 的是同一仓库的 Windows 本地代理，两者缺一不可。",
-        "overview":  "把 Jellyfin 网页的播放按钮接到本机 PotPlayer，并同步播放进度。",
-        "owner":  "Jellyfin-PotPlayer-Bridge",
-        "category":  "General",
-        "imageUrl":  "https://raw.githubusercontent.com/Louis-15/Jellyfin-PotPlayer-Bridge/main/server-jellyfin-plugin/Jellyfin.Plugin.PotPlayerBridge/logo.png",
-        "versions":  [
-                         {
-                             "version":  "1.0.0.0",
-                             "changelog":  "首个发布版本：把 jellyfin-web 的播放按钮接到本机 PotPlayer，支持整季播放计划、按季配置片头片尾、进度防倒退，以及卡片时长角标。",
-                             "targetAbi":  "12.2.0.0",
-                             "sourceUrl":  "https://github.com/Louis-15/Jellyfin-PotPlayer-Bridge/releases/download/v1.0.0.0/PotPlayerBridge-Plugin-1.0.0.0.zip",
-                             "checksum":  "ae0c7afb1090ac84d0656587252d3742",
-                             "timestamp":  "2026-11-08T16:29:50Z"
-                         }
-                     ]
-    }
+  {
+    "guid": "f70de2ad-8dc4-4efd-9daf-73c9657ae62f",
+    "name": "PotPlayer Bridge",
+    "description": "服务器侧插件：向 jellyfin-web 注入客户端脚本，解析 Series/Season/Episode/Movie 的播放意图，生成整季播放计划，按季保存片头片尾配置，并在回写播放进度时拒绝会倒退的写入。真正启动 PotPlayer 的是同一仓库的 Windows 本地代理，两者缺一不可。",
+    "overview": "把 Jellyfin 网页的播放按钮接到本机 PotPlayer，并同步播放进度。",
+    "owner": "Jellyfin-PotPlayer-Bridge",
+    "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/Louis-15/Jellyfin-PotPlayer-Bridge/main/server-jellyfin-plugin/Jellyfin.Plugin.PotPlayerBridge/logo.png",
+    "versions": [
+      {
+        "version": "1.0.0.1",
+        "changelog": "Release 1.0.0.1\n\n接入插件仓库自动更新；发布改由 GitHub Actions 自动构建、发布 Release 并回写清单。",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-PotPlayer-Bridge/releases/download/v1.0.0.1/PotPlayerBridge-Plugin-1.0.0.1.zip",
+        "checksum": "4453f72b3073c7c3de7726d5bc4802f8",
+        "timestamp": "2026-11-11T16:35:04Z"
+      },
+      {
+        "version": "1.0.0.0",
+        "changelog": "首个发布版本：把 jellyfin-web 的播放按钮接到本机 PotPlayer，支持整季播放计划、按季配置片头片尾、进度防倒退，以及卡片时长角标。",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/Louis-15/Jellyfin-PotPlayer-Bridge/releases/download/v1.0.0.0/PotPlayerBridge-Plugin-1.0.0.0.zip",
+        "checksum": "ae0c7afb1090ac84d0656587252d3742",
+        "timestamp": "2026-11-08T16:29:50Z"
+      }
+    ]
+  }
 ]
