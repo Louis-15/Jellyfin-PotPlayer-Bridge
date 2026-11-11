@@ -44,7 +44,11 @@ server-jellyfin-plugin/
 │  │  ├─ progressBadge.js           # 卡片图片左上角的「已看/总时长」角标
 │  │  └─ seasonSettings.css         # 面板样式（只作用于 .ppb*）
 │  ├─ meta.json                     # Jellyfin 插件元数据
-│  └─ logo.png
+│  ├─ logo.png
+├─ manifest.json                    # Jellyfin 插件仓库清单（CI 自动维护，勿手改版本条目）
+├─ scripts/
+│  └─ update-manifest.ps1           # 生成/更新清单（CI 发版时调用）
+├─ release.ps1                      # 本地发版：改版本号 + 提交 + 打标签 + 推送
 ├─ tests/Jellyfin.Plugin.PotPlayerBridge.Tests/   # xUnit：PlaybackPlanner + ProgressGuard
 ├─ global.json
 ├─ build.ps1                        # 编译 + 打包
@@ -75,25 +79,54 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 ```text
 artifacts\Jellyfin.Plugin.PotPlayerBridge_1.0.0.0\   # dll + meta.json + logo.png
-artifacts\potplayer-bridge_1.0.0.0.zip
+artifacts\PotPlayerBridge-Plugin-1.0.0.0.zip
 ```
 
 `build.ps1` 会先校验 `csproj` 的 `<Version>` 与 `meta.json` 的 `version` 是否一致；
-不一致会直接报错。改版本时两处都要改。
+不一致会直接报错。改版本时两处都要改（或者直接运行 `release.ps1`，它会一起改）。
 
-## 安装
+> zip 名必须保持 `PotPlayerBridge-Plugin-<version>.zip`：`manifest.json` 的 `sourceUrl`
+> 指向的正是这个文件名，改名会让 Jellyfin 自动更新下载 404。
 
-> **先备份插件目录**。重启 Jellyfin 会造成几十秒不可用，请在没人看片的时候操作。
+## 从插件仓库安装（推荐，可自动更新）
+
+Jellyfin 不直接读取 GitHub Release，而是读取一份「插件仓库清单」。本仓库已经把清单放在
+`server-jellyfin-plugin/manifest.json`，由 GitHub Actions 在每次发版时用实际 zip 的
+MD5 自动更新。
+
+1. 打开 Jellyfin 控制台 →「插件」→ 右上角「存储库」（Repositories）→ 添加：
+
+   ```text
+   https://raw.githubusercontent.com/Louis-15/Jellyfin-PotPlayer-Bridge/main/server-jellyfin-plugin/manifest.json
+   ```
+
+2. 保存后回到「插件」→「目录」（Catalog），找到 **PotPlayer Bridge** →「安装」。
+3. 安装完成后按 Jellyfin 的提示重启。
+
+之后每次发版，Jellyfin 会按自己的「检查插件更新」定时任务读取清单并提示（或按设置自动）
+更新；也可以在「插件」页面手动点「检查更新」。更新完成后同样需要重启 Jellyfin。
+
+> **服务器网络要求**：Jellyfin 机器必须能访问 `raw.githubusercontent.com`（拉清单）
+> 以及 `github.com` / `objects.githubusercontent.com`（下载 zip）。只把清单换成
+> jsDelivr 之类的镜像，并不能解决 zip 下载失败的问题。
+
+> **从手动安装迁移**：Jellyfin 更新时会自己删除旧版本目录。如果插件列表里出现两个同名
+> PotPlayer Bridge，说明旧目录没被清理，删掉旧的 `plugins/PotPlayer Bridge_*` 目录后
+> 重启即可。
+
+## 手动安装（备用）
+
+> 服务器访问不了 GitHub 时使用这种方式。**先备份插件目录**。重启 Jellyfin 会造成几十秒不可用，请在没人看片的时候操作。
 
 ```powershell
 # 1. 备份（在服务器上执行）
 ssh -p 2222 root@931002.xyz "tar czf /root/jellyfin-plugins-backup-$(date +%Y%m%d-%H%M%S).tgz -C /www/jellyfin/config plugins && ls -lh /root/jellyfin-plugins-backup-*.tgz | tail -1"
 
 # 2. 上传压缩包
-scp -P 2222 "artifacts\potplayer-bridge_1.0.0.0.zip" root@931002.xyz:/tmp/
+scp -P 2222 "artifacts\PotPlayerBridge-Plugin-1.0.0.0.zip" root@931002.xyz:/tmp/
 
 # 3. 解压到插件目录（目录名随意，Jellyfin 以 meta.json 为准；这里用可读的名字）
-ssh -p 2222 root@931002.xyz "mkdir -p '/www/jellyfin/config/plugins/PotPlayer Bridge_1.0.0.0' && unzip -o /tmp/potplayer-bridge_1.0.0.0.zip -d '/www/jellyfin/config/plugins/PotPlayer Bridge_1.0.0.0'"
+ssh -p 2222 root@931002.xyz "mkdir -p '/www/jellyfin/config/plugins/PotPlayer Bridge_1.0.0.0' && unzip -o /tmp/PotPlayerBridge-Plugin-1.0.0.0.zip -d '/www/jellyfin/config/plugins/PotPlayer Bridge_1.0.0.0'"
 
 # 4. 重启
 ssh -p 2222 root@931002.xyz "docker restart jellyfin"
@@ -136,12 +169,45 @@ ssh -p 2222 root@931002.xyz "docker ps --filter name=jellyfin --format '{{.Statu
 
 ## 更新
 
-1. 把 `csproj` 与 `meta.json` 的版本号改成新版本；
+### 自动更新（通过插件仓库安装后）
+
+1. Jellyfin 控制台 →「插件」→ 点「检查更新」；
+2. 有新版时点「更新」，完成后重启 Jellyfin。
+
+也可以在「控制台 → 计划任务」里确认「检查插件更新」任务已启用，让 Jellyfin 定期自动检查。
+插件目录由 Jellyfin 自己创建和清理，不要再手工往旧版本目录里覆盖 dll。
+
+### 手动更新（没有添加插件仓库时）
+
+1. 把 `csproj` 与 `meta.json` 的版本号改成新版本（或直接运行 `release.ps1`）；
 2. 重新运行 `build.ps1`；
-3. 按「安装」的步骤解压到**新的**版本目录（例如 `PotPlayer Bridge_1.0.0.1`）；
+3. 按「手动安装」的步骤解压到**新的**版本目录（例如 `PotPlayer Bridge_1.0.0.1`）；
 4. 删掉旧版本目录，重启 Jellyfin。
 
 旧目录不删的话 Jellyfin 会同时加载两个同名插件（ID 相同），行为不可预期。
+
+## 发布新版本（维护者）
+
+1. 确认工作区没有其他未提交改动（`git status`），否则 `release.ps1` 里的 rebase 会失败；
+2. 运行：
+
+   ```powershell
+   .\release.ps1 -Version 1.0.0.1 -Changelog "这次改了什么"
+   ```
+
+   脚本会同步修改 `csproj` / `meta.json` 的版本号、提交、追平远端 `main`、
+   打 annotated tag `v1.0.0.1` 并推送。
+
+3. GitHub Actions（`.github/workflows/build.yml`）自动完成：
+   - 跑测试、编译、生成 `PotPlayerBridge-Plugin-1.0.0.1.zip`；
+   - 把新版本条目（含实际 zip 的 MD5）写进 `manifest.json` 并提交回 `main`；
+   - 创建 Release 并上传插件 zip。
+
+4. Actions 变绿后，Jellyfin 的插件目录就能看到新版本。
+
+> 手工打 tag 也可以，但必须**先把包含新版本号的提交推到 main，再推 tag**。
+> 否则 CI 切到 `origin/main` 后找不到 `scripts/update-manifest.ps1`，或者版本号对不上，
+> 会直接失败。
 
 ## 卸载
 

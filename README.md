@@ -90,11 +90,29 @@
 
 ## 第一部分：安装服务器插件
 
-### 方式一：手动安装（推荐，适用于所有部署）
+### 方式一：插件仓库（推荐，可自动更新）
+
+在 Jellyfin 控制台 →「插件」→ 右上角「存储库」（Repositories）→ 添加：
+
+```text
+https://raw.githubusercontent.com/Louis-15/Jellyfin-PotPlayer-Bridge/main/server-jellyfin-plugin/manifest.json
+```
+
+保存后回到「插件」→「目录」（Catalog），找到 **PotPlayer Bridge** →「安装」，然后按提示重启 Jellyfin。
+
+之后每次发版，Jellyfin 会按「检查插件更新」定时任务读取清单，也可以在「插件」页面手动点
+「检查更新」。更新完成后同样需要重启 Jellyfin。
+
+> Jellyfin 机器需要能访问 `raw.githubusercontent.com`（清单）以及 `github.com` /
+> `objects.githubusercontent.com`（下载 zip）。服务器访问不了 GitHub 时，用下面的手动安装。
+
+### 方式二：手动安装（服务器不能访问 GitHub 时）
 
 1. **下载插件包**
 
-   到 [Releases](https://github.com/Louis-15/Jellyfin-PotPlayer-Bridge/releases/latest) 页面下载 **`PotPlayerBridge-Plugin-1.0.0.0.zip`**（注意不要下成 Agent 那个包）。
+   到 [Releases](https://github.com/Louis-15/Jellyfin-PotPlayer-Bridge/releases/latest) 页面下载最新的 **`PotPlayerBridge-Plugin-*.zip`**（注意不要下成 Agent 那个包）。
+
+   下面命令里的 `1.0.0.0` 只是示例，实际以 Releases 页面的版本号为准。
 
 2. **解压到 Jellyfin 插件目录**
 
@@ -159,7 +177,7 @@
    # 期望输出：{"name":"PotPlayer Bridge","version":"1.0.0.0","targetAbi":"12.2.0.0"}
    ```
 
-### 方式二：从源码构建
+### 方式三：从源码构建
 
 见 [从源码构建](#从源码构建)。
 
@@ -171,7 +189,10 @@
 
 1. **下载代理包**
 
-   到 [Releases](https://github.com/Louis-15/Jellyfin-PotPlayer-Bridge/releases/latest) 页面下载 **`PotPlayerBridge-Agent-1.0.0.0.zip`**。
+   到 [Releases](https://github.com/Louis-15/Jellyfin-PotPlayer-Bridge/releases) 页面下载最新的 **`PotPlayerBridge-Agent-*.zip`**。
+
+   > 服务器插件与本地代理是两条独立的发布链路。如果最新 Release 里没有 Agent 包，
+   > 到 [`v1.0.0.0`](https://github.com/Louis-15/Jellyfin-PotPlayer-Bridge/releases/tag/v1.0.0.0) 下载，或从源码构建。
 
 2. **解压**
 
@@ -405,6 +426,9 @@ Get-Process PotPlayerBridge
 
 插件与 Jellyfin 版本强绑定（`targetAbi`）。Jellyfin 大版本升级后需要对应版本的插件。
 
+如果通过插件仓库安装，升级 Jellyfin 后到「插件」页面检查更新即可；清单里保留了历史版本，
+新版本还没发布时可以继续使用与当前 Jellyfin 兼容的旧版本。
+
 ---
 
 ## 卸载
@@ -467,7 +491,7 @@ cd server-jellyfin-plugin
 产物：
 
 - `artifacts/Jellyfin.Plugin.PotPlayerBridge_1.0.0.0/` — 可直接解压到插件目录
-- `artifacts/potplayer-bridge_1.0.0.0.zip` — 打包好的压缩包
+- `artifacts/PotPlayerBridge-Plugin-1.0.0.0.zip` — 打包好的压缩包（与 Release 资产同名）
 
 ### 构建本地代理
 

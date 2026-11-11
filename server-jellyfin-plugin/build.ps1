@@ -6,7 +6,10 @@
 .DESCRIPTION
     产物：
       artifacts\Jellyfin.Plugin.PotPlayerBridge_<version>\   dll + meta.json + logo.png
-      artifacts\potplayer-bridge_<version>.zip              解压到 /config/plugins/<任意目录名>/ 即可
+      artifacts\PotPlayerBridge-Plugin-<version>.zip        解压到 /config/plugins/<任意目录名>/ 即可
+
+    zip 命名与 GitHub Release 资产保持一致（PotPlayerBridge-Plugin-<version>.zip），
+    manifest.json 里的 sourceUrl 也指向这个文件名；改名会让自动更新下载 404。
 
     脚本会先校验 csproj 的 <Version> 与 meta.json 的 version 是否一致。
     两者不一致时 Jellyfin 显示的版本和 dll 里的版本会不同，排查问题时会非常混乱，
@@ -52,7 +55,7 @@ if ($projectVersion -ne $version) {
 
 $artifacts = Join-Path $root 'artifacts'
 $packageDir = Join-Path $artifacts "Jellyfin.Plugin.PotPlayerBridge_$version"
-$zipPath = Join-Path $artifacts "potplayer-bridge_$version.zip"
+$zipPath = Join-Path $artifacts "PotPlayerBridge-Plugin-$version.zip"
 
 Write-Host "==> 编译 PotPlayer Bridge $version ($Configuration)" -ForegroundColor Cyan
 & $Dotnet build $project -c $Configuration --nologo
@@ -86,4 +89,4 @@ Write-Host "MD5:        $hash"
 Write-Host ''
 Write-Host '安装到服务器（先备份插件目录）：'
 Write-Host "  scp -P 2222 `"$zipPath`" root@931002.xyz:/tmp/"
-Write-Host "  ssh -p 2222 root@931002.xyz `"mkdir -p '$remoteDir' && unzip -o '/tmp/potplayer-bridge_$version.zip' -d '$remoteDir' && docker restart jellyfin`""
+Write-Host "  ssh -p 2222 root@931002.xyz `"mkdir -p '$remoteDir' && unzip -o '/tmp/PotPlayerBridge-Plugin-$version.zip' -d '$remoteDir' && docker restart jellyfin`""

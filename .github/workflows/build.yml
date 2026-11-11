@@ -1,0 +1,109 @@
+name: Build and release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# 需要写权限：更新 manifest 后要提交回 main，并创建 Release。
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server-jellyfin-plugin
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 需要完整历史和 tag 注释（changelog 从 annotated tag 的消息里取）。
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Test
+        run: dotnet test tests/Jellyfin.Plugin.PotPlayerBridge.Tests/Jellyfin.Plugin.PotPlayerBridge.Tests.csproj -c Release
+
+      # tag 名和 meta.json 版本对不上时提前失败，避免发布出“文件名是 1.0.0.2、
+      # 插件页显示 1.0.0.1”这种无法排查的版本错位。
+      - name: Verify tag matches meta.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $meta = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText(
+            'Jellyfin.Plugin.PotPlayerBridge/meta.json', [System.Text.Encoding]::UTF8))
+          if ($meta.version -ne $version) {
+            throw "标签 v$version 与 meta.json 的 $($meta.version) 不一致，请先让两者相同再发版。"
+          }
+
+      - name: Package
+        shell: pwsh
+        run: ./build.ps1 -Configuration Release -Dotnet dotnet
+
+      # 先发布 Release，再回写 manifest：这样清单指向的 zip 一定已经存在。
+      # 反过来做的话，Jellyfin 可能在资产上传完成前就拉到新清单，下载 404。
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          # 路径相对仓库根，不受上面的 working-directory 影响。
+          files: server-jellyfin-plugin/artifacts/PotPlayerBridge-Plugin-*.zip
+          fail_on_unmatched_files: true
+          body: |
+            本 Release 包含 **Jellyfin 服务器插件** 压缩包（`PotPlayerBridge-Plugin-*.zip`）。
+
+            - **自动更新**：在 Jellyfin 控制台 →「插件」→「存储库」中添加
+              `https://raw.githubusercontent.com/Louis-15/Jellyfin-PotPlayer-Bridge/main/server-jellyfin-plugin/manifest.json`
+              之后，插件目录会按清单检查更新。
+            - **手动安装**：解压到 Jellyfin 的 `<配置目录>/plugins/PotPlayerBridge/` 后重启。
+
+            > Windows 本地代理（`PotPlayerBridge-Agent-*.zip`）与服务器插件独立发版，
+            > 本 Release 不包含代理包；请到包含 Agent 资产的 Release 下载，或按 README 从源码构建。
+
+      # manifest.json 是脚本生成的产物，不是手写内容。
+      # 必须在 main 的最新提交上生成并提交，而不是在 tag 的 detached HEAD 上提交后
+      # rebase：后者一旦 main 在此期间前进就会产生冲突（改的是同一批行）。
+      # release.ps1 会先 push main 再 push tag，因此 main 上一定有本脚本。
+      - name: Update manifest
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main
+          git checkout -B manifest-update origin/main
+
+          if (-not (Test-Path './scripts/update-manifest.ps1')) {
+            throw 'main 上还没有 scripts/update-manifest.ps1。请先把本次提交推到 main，再推送 tag。'
+          }
+
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $zip = "artifacts/PotPlayerBridge-Plugin-$version.zip"
+          if (-not (Test-Path $zip)) { throw "找不到构建产物 $zip" }
+
+          # checksum 必须来自刚构建出的 zip，不能沿用上一次 Manifest 的值。
+          $checksum = (Get-FileHash $zip -Algorithm MD5).Hash.ToLowerInvariant()
+          $changelog = (git tag -l --format='%(contents)' $env:GITHUB_REF_NAME | Out-String).Trim()
+
+          ./scripts/update-manifest.ps1 `
+            -Version $version `
+            -Checksum $checksum `
+            -Changelog $changelog `
+            -SourceUrl "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GITHUB_REF_NAME/PotPlayerBridge-Plugin-$version.zip"
+
+          if (-not (git status --porcelain manifest.json)) {
+            Write-Host 'manifest.json 已是最新，无需提交'
+            exit 0
+          }
+
+          git add manifest.json
+          git commit -m "Update manifest for $env:GITHUB_REF_NAME"
+          git push origin HEAD:main
