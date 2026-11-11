@@ -5,8 +5,8 @@
     "targetAbi":  "12.2.0.0",
     "framework":  "net10.0",
     "owner":  "Jellyfin-PotPlayer-Bridge",
-    "overview":  "把 Jellyfin 网页的播放按钮接到本机 PotPlayer，并同步播放进度。",
-    "description":  "服务器侧插件：向 jellyfin-web 注入客户端脚本，解析 Series/Season/Episode/Movie 的播放意图，生成整季播放计划，按季保存片头片尾配置，并在回写播放进度时拒绝会倒退的写入。真正启动 PotPlayer 的是同一仓库的 Windows 本地代理，两者缺一不可。",
+    "overview":  "把 Jellyfin 网页的播放按钮接到本机 PotPlayer：整季连播、自动续播、自动跳片头片尾。",
+    "description":  "在 Jellyfin 网页上点播放，直接在本机 PotPlayer 打开，不用下载、不用复制地址。点某一集会生成整季播放列表并从这一集开始，播完自动跳下一集；播放进度实时回写，手机上看到哪、电脑上就从哪接着播，自动续播；可按季设置片头片尾长度，自动跳过片头、到片尾自动跳下一集；播放器异常读到 0 时不会把观看记录冲掉；电影和单片视频会自动挂载 Jellyfin 里的外挂中文字幕；网页卡片左上角显示已看与总时长角标，并自动补全 STRM 缺失的时长。本插件是服务器侧，真正启动 PotPlayer 的是同一仓库的 Windows 本地代理，两个都装才能正常使用。",
     "category":  "General",
     "imagePath":  "logo.png",
     "timestamp":  "2026-11-06T15:30:00.0000000Z"

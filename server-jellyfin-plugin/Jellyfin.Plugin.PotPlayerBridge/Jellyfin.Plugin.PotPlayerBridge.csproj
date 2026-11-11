@@ -12,7 +12,7 @@
     <FileVersion>1.0.0.4</FileVersion>
     <Company>Jellyfin-PotPlayer-Bridge</Company>
     <Authors>Jellyfin-PotPlayer-Bridge</Authors>
-    <Description>把 jellyfin-web 的播放按钮接到本机 PotPlayer：解析播放意图、生成播放计划、守卫进度回写。</Description>
+    <Description>在 Jellyfin 网页点播放，直接用本机 PotPlayer 播放：整季播放列表、进度同步续播、自动跳过片头片尾。</Description>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <EnableNETAnalyzers>false</EnableNETAnalyzers>

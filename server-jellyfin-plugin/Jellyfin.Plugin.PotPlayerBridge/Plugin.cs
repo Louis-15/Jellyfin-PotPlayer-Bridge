@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.PotPlayerBridge;
 
 /// <summary>
 /// Jellyfin → PotPlayer 桥接插件（服务器侧）。
-/// 服务器只负责「解析语义、生成播放计划、守卫进度回写」，不启动任何本机程序。
+/// 服务器只负责「解析播放意图、生成整季播放列表、回写播放进度」，不启动任何本机程序。
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>
 {
@@ -36,8 +36,19 @@ public class Plugin : BasePlugin<PluginConfiguration>
     public override string Name => "PotPlayer Bridge";
 
     /// <inheritdoc />
+    /// <remarks>
+    /// 这段文字直接显示在 Jellyfin 插件详情页，写成人话而不是内部术语。
+    /// 分句而不是列表：插件页按纯文本渲染，换行和连字符不会变成排版。
+    /// </remarks>
     public override string Description =>
-        "把 jellyfin-web 的播放按钮接到本机 PotPlayer：服务器解析播放意图、生成整季播放计划、守卫进度回写。";
+        "在 Jellyfin 网页上点播放，直接在本机 PotPlayer 打开，不用下载、不用复制地址。"
+        + "点某一集会生成整季播放列表并从这一集开始，播完自动跳下一集；"
+        + "播放进度实时回写，手机上看到哪、电脑上就从哪接着播，自动续播；"
+        + "可按季设置片头片尾长度，自动跳过片头、到片尾自动跳下一集；"
+        + "播放器异常读到 0 时不会把观看记录冲掉；"
+        + "电影和单片视频会自动挂载 Jellyfin 里的外挂中文字幕；"
+        + "网页卡片左上角显示已看与总时长角标，并自动补全 STRM 缺失的时长。"
+        + "本插件是服务器侧，真正启动 PotPlayer 的是同一仓库的 Windows 本地代理，两个都装才能正常使用。";
 
     /// <inheritdoc />
     public override Guid Id => PluginId;
