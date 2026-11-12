@@ -7,9 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Jellyfin.Plugin.PotPlayerBridge</RootNamespace>
     <AssemblyName>Jellyfin.Plugin.PotPlayerBridge</AssemblyName>
-    <Version>1.0.0.6</Version>
-    <AssemblyVersion>1.0.0.6</AssemblyVersion>
-    <FileVersion>1.0.0.6</FileVersion>
+    <Version>1.0.1.0</Version>
+    <AssemblyVersion>1.0.1.0</AssemblyVersion>
+    <FileVersion>1.0.1.0</FileVersion>
     <Company>Jellyfin-PotPlayer-Bridge</Company>
     <Authors>Jellyfin-PotPlayer-Bridge</Authors>
     <Description>在 Jellyfin 网页点播放，直接用本机 PotPlayer 播放：整季播放列表、进度同步续播、自动跳过片头片尾。</Description>
