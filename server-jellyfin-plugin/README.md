@@ -138,6 +138,10 @@ ssh -p <SSH端口> <用户名>@<服务器地址> "docker restart jellyfin"
 ssh -p <SSH端口> <用户名>@<服务器地址> "docker ps --filter name=jellyfin --format '{{.Status}}'"
 ```
 
+> 没有 SSH 的 NAS：直接在文件管理器里把 zip 解压到映射出来的 `config/plugins/<目录名>/`，
+> 再在 NAS 的容器管理界面重启 Jellyfin，效果相同。目标路径始终是**容器内**的
+> `/config/plugins`，宿主机对应你映射给容器的配置目录。
+
 ## 确认装好了（四步）
 
 1. **插件被加载**：打开 Jellyfin 控制台 →「插件」，列表里应出现 **PotPlayer Bridge**，版本 `1.0.0.0`。

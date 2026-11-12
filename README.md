@@ -136,6 +136,10 @@ https://raw.githubusercontent.com/Louis-15/Jellyfin-PotPlayer-Bridge/main/server
    unzip -o /tmp/PotPlayerBridge-Plugin-1.0.0.0.zip -d ./config/plugins/PotPlayerBridge
    ```
 
+   **NAS（群晖 / 威联通 / UGREEN 等）**：不需要 SSH。在 NAS 的文件管理器里打开
+   Jellyfin 容器的配置目录（一般是你映射给容器的 `config` 目录），把 zip 解压到
+   `plugins/PotPlayerBridge/`，最后在 NAS 的容器管理界面重启 Jellyfin 即可。
+
    **裸机 / Windows 部署**：
 
    - Linux：解压到 `/var/lib/jellyfin/plugins/PotPlayerBridge/`
