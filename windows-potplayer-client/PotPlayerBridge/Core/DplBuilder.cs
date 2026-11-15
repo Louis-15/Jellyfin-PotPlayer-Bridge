@@ -16,9 +16,10 @@ namespace PotPlayerBridge.Core;
 /// 注意：绝不使用 /title= 参数（实测会让 DPL 完全不播放）。
 /// <para>
 /// 为什么这里不写字幕：实测 PotPlayer 的 DPL 格式<b>没有</b>字幕字段
-/// （<c>N*sub*</c> 会被静默忽略，PotPlayer 自己保存 DPL 时也从不写字幕），
-/// 所以剧集的外挂字幕无法通过整季 DPL 带进去，只能靠内嵌字幕。
-/// 电影/单片视频改走「单集直启 + /sub」路线，见 <see cref="PotPlayerLauncher.LaunchSingleAsync"/>。
+/// （<c>N*sub*</c> 会被静默忽略，PotPlayer 自己保存 DPL 时也从不写字幕）。
+/// 剧集的外挂字幕由代理在每一集真正开始播放后逐集注入
+/// （见 <see cref="SubtitlePlaybackCoordinator"/> 和 <see cref="SubtitleInjector"/>）；
+/// 电影/单片视频仍走「单集直启 + /sub」路线，见 <see cref="PotPlayerLauncher.LaunchSingleAsync"/>。
 /// </para>
 /// </summary>
 public static class DplBuilder

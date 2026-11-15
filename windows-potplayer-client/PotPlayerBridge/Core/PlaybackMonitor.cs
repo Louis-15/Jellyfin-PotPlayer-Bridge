@@ -38,6 +38,12 @@ public sealed class PlaybackMonitor : IAsyncDisposable
     private readonly int _processId;
     private readonly Logger _log;
 
+    /// <summary>
+    /// 「这一集真的开始播了」的回调（参数：播放列表序号 1 开始、PotPlayer 主窗口句柄）。
+    /// 只有整季剧集才会传入；电影/单片走单集直启 + /sub，不需要它。
+    /// </summary>
+    private readonly Action<int, IntPtr>? _onEpisodeReady;
+
     private readonly PlaybackProgressState _state;
     private readonly ProgressSender _sender;
     private readonly CancellationTokenSource _sampleCts = new();
@@ -89,6 +95,10 @@ public sealed class PlaybackMonitor : IAsyncDisposable
     /// 是否「单集直启」模式（电影/单片视频直接播视频地址 + /sub）。
     /// 该模式下窗口标题是文件名，不能按 Jellyfin 标题识别集号。
     /// </param>
+    /// <param name="onEpisodeReady">
+    /// 「这一集真的开始播了」的回调（播放列表序号、PotPlayer 主窗口句柄）。
+    /// 只有整季剧集才传；电影/单片传 null。
+    /// </param>
     public PlaybackMonitor(
         PlaybackPlan plan,
         string serverUrl,
@@ -96,11 +106,13 @@ public sealed class PlaybackMonitor : IAsyncDisposable
         int processId,
         JellyfinClient jellyfin,
         Logger log,
-        bool singleItemMode = false)
+        bool singleItemMode = false,
+        Action<int, IntPtr>? onEpisodeReady = null)
     {
         _plan = plan;
         _processId = processId;
         _log = log;
+        _onEpisodeReady = onEpisodeReady;
 
         _state = new PlaybackProgressState(plan, singleItemMode);
         _sender = new ProgressSender(plan, serverUrl, accessToken, jellyfin, log);
@@ -230,6 +242,10 @@ public sealed class PlaybackMonitor : IAsyncDisposable
                     _state.NotifyEpisodeStartReported();
                     _lastSignal = signal;
                     _lastPublishAt = Environment.TickCount64;
+
+                    // 媒体已经真正出画面（armed）才通知字幕加载：
+                    // 换集瞬间窗口标题/播放器状态都还没稳定，这时打开字幕对话框会挂错集或直接失败。
+                    NotifyEpisodeReady();
                 }
 
                 if (change == PlaybackChange.EpisodeChanged)
@@ -453,6 +469,38 @@ public sealed class PlaybackMonitor : IAsyncDisposable
         _lastReportAt = Environment.TickCount64;
 
         PotPlayerWindow.SendNext(_handle);
+    }
+
+    /// <summary>
+    /// 通知「当前这一集已经真正开始播放」，让上层去加载该集外挂字幕。
+    /// <para>
+    /// 回调必须放到线程池：字幕下载 + 打开 PotPlayer 对话框最坏要几百毫秒到几秒，
+    /// 直接在采样循环里做会拖慢进度上报，甚至让片头/片尾判断错过时机。
+    /// </para>
+    /// </summary>
+    private void NotifyEpisodeReady()
+    {
+        var callback = _onEpisodeReady;
+        if (callback is null)
+        {
+            return;
+        }
+
+        var index = _state.Index;
+        var window = _handle;
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                callback(index, window);
+            }
+            catch (Exception ex)
+            {
+                // 字幕是增强功能：回调失败只记日志，绝不打断采样/上报。
+                _log.Warn("通知逐集字幕加载失败：" + ex.Message);
+            }
+        });
     }
 
     private IntPtr ResolveWindow()

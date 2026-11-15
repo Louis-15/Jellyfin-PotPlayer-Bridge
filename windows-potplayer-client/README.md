@@ -4,9 +4,9 @@
 它负责启动/监控 PotPlayer、生成播放列表、回写播放进度；网页上的播放按钮由
 [Jellyfin 插件](../server-jellyfin-plugin/) 注入的脚本接管后调用本程序。
 
-> 当前进度：M5（进度同步）。本程序已经能常驻托盘、提供本机 HTTP 接口、自动发现 PotPlayer、
+> 当前进度：M6（片头片尾 + 字幕）。本程序已经能常驻托盘、提供本机 HTTP 接口、自动发现 PotPlayer、
 > 读写设置，在网页点播放时生成整季 DPL、拉起 PotPlayer，并把播放进度回写到 Jellyfin
-> （含续播跳转与防倒退守卫）。片头片尾跳转与字幕（M6）还没做。
+> （含续播跳转与防倒退守卫）。剧集的外挂字幕由代理在每集真正开始播放后逐集自动加载。
 
 ## 目录结构
 
@@ -276,4 +276,5 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -RemoveData
 - [x] 列表只写 `%LocalAppData%\PotPlayerBridge\playlists`（不污染 PotPlayer 专辑），清单登记 + 只清理自己的文件（保留最近 5 个）
 - [x] M5：每秒采样（`0x5002/0x5004/0x5006`）+ 窗口标题识集 + armed 状态机 + 5 秒上报
 - [x] M5：续播跳转（`0x5005`，媒体就绪后重试）、暂停/拖动/停止/播完事件上报
-- [ ] 片头片尾与字幕（M6）
+- [x] M6：片头片尾跳转
+- [x] M6：电影/单片 `/sub` 字幕 + 整季剧集逐集自动加载外挂字幕

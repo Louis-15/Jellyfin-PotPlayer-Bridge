@@ -8,9 +8,9 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>PotPlayerBridge</RootNamespace>
     <AssemblyName>PotPlayerBridge</AssemblyName>
-    <Version>1.0.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.2.0</Version>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <FileVersion>1.0.2.0</FileVersion>
     <Company>Jellyfin-PotPlayer-Bridge</Company>
     <Product>PotPlayer Bridge</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>

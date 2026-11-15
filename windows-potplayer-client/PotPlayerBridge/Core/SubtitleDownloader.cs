@@ -9,8 +9,8 @@ namespace PotPlayerBridge.Core;
 /// 为什么必须落盘：<c>/sub=</c> 只接受本地文件路径，不接受 URL。
 /// </para>
 /// <para>
-/// 为什么只给「单集直启」用：PotPlayer 的 DPL 播放列表格式没有字幕字段，
-/// 整季连播时无法把字幕带进去；只有直接播放视频地址时 <c>/sub=</c> 才生效。
+/// 两种用法：电影/单片下载后交给单集直启的 <c>/sub=</c>；整季剧集下载后由
+/// <see cref="SubtitlePlaybackCoordinator"/> 在每集真正开始播放时注入。
 /// </para>
 /// <para>
 /// 目录按 playSessionId 隔离，播放期间不能被清理；7 天后由下次启动时顺手回收（N-04）。

@@ -96,7 +96,7 @@ public sealed class PotPlayerLauncher
     /// <para>
     /// 为什么电影不能用 DPL：实测 PotPlayer 的 DPL 格式没有字幕字段（<c>N*sub*</c> 被静默忽略），
     /// 只要用播放列表启动，<c>/sub=</c> 参数就会被丢弃；只有「直接播放视频地址」时字幕才生效。
-    /// 剧集仍走整季 DPL（内嵌字幕够用，还能保留完整列表）。
+    /// 剧集仍走整季 DPL，字幕由 <see cref="SubtitlePlaybackCoordinator"/> 在每集真正开始播放时逐集注入。
     /// </para>
     /// <para>
     /// 这里刻意不加 <c>/new</c>：实测它会和 <c>/sub=</c> 一起使用时把字幕参数丢掉。

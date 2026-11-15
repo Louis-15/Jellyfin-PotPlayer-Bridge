@@ -28,6 +28,12 @@ public sealed class PlaybackService
 
     private PlaybackMonitor? _monitor;
 
+    /// <summary>
+    /// 剧集逐集字幕协调器。只有整季 DPL 播放时才创建；
+    /// 电影/单片走单集直启 + /sub，字幕本来就能加载，不需要它。
+    /// </summary>
+    private SubtitlePlaybackCoordinator? _subtitleCoordinator;
+
     /// <summary>Initializes a new instance of the <see cref="PlaybackService"/> class.</summary>
     /// <param name="config">配置。</param>
     /// <param name="locator">路径发现。</param>
@@ -97,7 +103,7 @@ public sealed class PlaybackService
             await _launcher.CloseOwnedAsync(cancellationToken).ConfigureAwait(false);
 
             // 字幕下载与启动方式：电影/单片视频走「单集直启 + /sub」，剧集走整季 DPL。
-            // 原因见 PotPlayerLauncher.LaunchSingleAsync 的注释（DPL 格式没有字幕字段）。
+            // DPL 没有字幕字段，所以剧集的字幕由 SubtitlePlaybackCoordinator 在每集开始时逐集注入。
             var directLaunch = ShouldLaunchSingle(plan);
 
             if (directLaunch)
@@ -131,13 +137,26 @@ public sealed class PlaybackService
 
             _runtime.SetCurrentPlayback(plan, playlistLaunch.ProcessId, playlistLaunch.WindowHandle);
 
-            _monitor = CreateMonitor(plan, request, playlistLaunch.ProcessId, singleItemMode: false);
+            // 只有整季剧集才启用逐集字幕：
+            // DPL 没有字幕字段，必须在每一集真正开始播放后，由代理手动挂该集字幕。
+            // 电影/单片已经在上面走「单集直启 + /sub」，这条路完全不用改。
+            var subtitleCoordinator = new SubtitlePlaybackCoordinator(_subtitles, _log);
+            subtitleCoordinator.Begin(plan, request.ServerUrl!, request.AccessToken!);
+            _subtitleCoordinator = subtitleCoordinator;
+
+            _monitor = CreateMonitor(
+                plan,
+                request,
+                playlistLaunch.ProcessId,
+                singleItemMode: false,
+                onEpisodeReady: subtitleCoordinator.Request);
             _monitor.Start();
 
             _log.Info(
                 "播放已启动：" + plan.PlaylistName +
                 "，起播第 " + plan.StartIndex + " 项" +
                 "，列表 " + plan.Playlist.Count + " 项" +
+                "，逐集外挂字幕已启用" +
                 "，PID=" + playlistLaunch.ProcessId);
 
             return new PlayResponse(plan, playlistWrite, playlistLaunch);
@@ -158,7 +177,12 @@ public sealed class PlaybackService
         return plan.ItemType is "Movie" or "Video";
     }
 
-    private PlaybackMonitor CreateMonitor(PlaybackPlan plan, PlayRequest request, int processId, bool singleItemMode)
+    private PlaybackMonitor CreateMonitor(
+        PlaybackPlan plan,
+        PlayRequest request,
+        int processId,
+        bool singleItemMode,
+        Action<int, IntPtr>? onEpisodeReady = null)
     {
         return new PlaybackMonitor(
             plan,
@@ -167,7 +191,8 @@ public sealed class PlaybackService
             processId,
             _jellyfin,
             _log,
-            singleItemMode);
+            singleItemMode,
+            onEpisodeReady);
     }
 
     /// <summary>
@@ -190,6 +215,14 @@ public sealed class PlaybackService
 
     private async Task StopMonitorAsync()
     {
+        // 先取消逐集字幕任务，再停监控：避免监控停了以后还有后台任务往播放器里塞字幕。
+        var coordinator = _subtitleCoordinator;
+        _subtitleCoordinator = null;
+        if (coordinator is not null)
+        {
+            await coordinator.DisposeAsync().ConfigureAwait(false);
+        }
+
         var monitor = _monitor;
         if (monitor is null)
         {
